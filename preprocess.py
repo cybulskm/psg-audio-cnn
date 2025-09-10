@@ -20,6 +20,10 @@ def parse_annotations(rml_file_path):
             start_time = float(event.get('Start'))
             duration = float(event.get('Duration'))
             events.append((event_type, start_time, duration))
+        else:
+            start_time = float(event.get('Start'))
+            duration = float(event.get('Duration'))
+            events.append(("normal_breathing", start_time, duration))
     print(f"Found {len(events)} events in {rml_file_path}")
     return events
 
