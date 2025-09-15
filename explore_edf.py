@@ -91,10 +91,28 @@ def read_chunk_from_data(file_path, labels_to_read=None, start=0, n_samples=1000
     return arr, labels
 
 
+def print_labels_and_freqs(file_path):
+    with pyedflib.EdfReader(file_path) as f:
+        headers = sorted(f.getSignalHeaders(), key=lambda h: h['sample_frequency'], reverse=True)
+        # group by frequency
+        freq_groups = {}
+        for h in headers:
+            freq = h['sample_frequency']
+            if freq not in freq_groups:
+                freq_groups[freq] = []
+            freq_groups[freq].append(h['label'])
+        for freq, labels in sorted(freq_groups.items(), reverse=True):
+            print(f"Frequency: {freq} Hz\nChannels: {labels}")
+            print("---------------")
+
 # Usage
-file_path = 'dataset\\00000995-100507[001].edf'
+file_path = 'data\\00000995-100507[001].edf'
+
+print_labels_and_freqs(file_path)
+"""
 common_freq, labels = get_most_common_frequency(file_path)
 arr, labels = preview_edf(file_path, start=0, n_samples=500)
 print("Labels:", labels)
 print("Data shape (channels x samples):", arr.shape)
 print("First channel first 10 samples:", arr[0,:10])
+"""
