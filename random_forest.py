@@ -49,3 +49,8 @@ feature_importance = sorted(zip(channels, importances), key=lambda x: x[1], reve
 print("\nFeature importances (sorted):")
 for feature, importance in feature_importance:
     print(f"{feature}: {importance}")
+
+for feature, importance in feature_importance:
+    print(f"{feature}")
+
+    

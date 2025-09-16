@@ -103,13 +103,11 @@ def preprocess_and_label(edf_file_path, annotations, remaining_annotations, samp
     return segments, remaining_annotations, edf_duration
 
 def process_events_for_patient(rml_path, edf_group, output_file):
-    # Parse annotations once for this patient
     annotations = parse_annotations(rml_path)
     print(f"Processing {len(edf_group)} EDF files for patient with {len(annotations)} events")
     
     all_segments = []
-    remaining_annotations = []
-    total_elapsed_time = 0  # Tracks cumulative duration of processed EDFs
+    total_elapsed_time = 0
 
     for edf_file in edf_group:
         # Adjust event timestamps by subtracting elapsed time
@@ -118,14 +116,14 @@ def process_events_for_patient(rml_path, edf_group, output_file):
             adjusted_start_time = start_time - total_elapsed_time
             if adjusted_start_time >= 0:
                 adjusted_annotations.append((event_type, adjusted_start_time, duration))
-            else:
-                remaining_annotations.append((event_type, adjusted_start_time + total_elapsed_time, duration))
-
-        # Process EDF with adjusted annotations
-        segments, remaining_annotations, edf_duration = preprocess_and_label(edf_file, adjusted_annotations, remaining_annotations)
+        # Only process events that start within this EDF
+        segments, remaining_annotations, edf_duration = preprocess_and_label(edf_file, adjusted_annotations, [])
         all_segments.extend(segments)
-
-        # Update total elapsed time
+        # Prepare annotations for next EDF
+        annotations = []
+        for event_type, start_time, duration in adjusted_annotations:
+            if start_time >= edf_duration:
+                annotations.append((event_type, start_time - edf_duration + total_elapsed_time + edf_duration, duration))
         total_elapsed_time += edf_duration
 
     save_to_pkl(all_segments, output_file)

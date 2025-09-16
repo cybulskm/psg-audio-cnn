@@ -14,7 +14,15 @@ with open(data_path, "rb") as f:
     segments = pickle.load(f)
 
 # Prepare data
-channels = ["EEG A1-A2", "EEG C3-A2", "EEG C4-A1", "EOG LOC-A2", "EOG ROC-A2", "EMG Chin", "Leg 1", "Leg 2", "ECG I"]
+channels = ["Leg 2",
+            "Leg 1",
+            "EEG C3-A2",
+            "EEG C4-A1",
+            "EMG Chin",
+            "EEG A1-A2",
+            "EOG LOC-A2",
+            "EOG ROC-A2",
+            "ECG I"]
 X = []
 y = []
 for seg in segments:
