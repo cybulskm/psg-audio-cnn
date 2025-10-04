@@ -1,17 +1,25 @@
 import os
+import sys
 import numpy as np
 import pandas as pd
 from sklearn.model_selection import train_test_split
 from tensorflow.keras.utils import to_categorical
-from src.data_loader import load_data_streaming, filter_classes
-from src.random_forest import get_feature_importance, select_top_features, convert_feature_names_to_channels
-from src.cnn import train_and_evaluate_cnn
+
+# Add parent directory to path
+parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, parent_dir)
+
+# Use relative imports
+from data_loader import load_data_streaming, filter_classes, validate_data_quality
+from random_forest import get_feature_importance, select_top_features, convert_feature_names_to_channels
+from cnn import train_and_evaluate_cnn
 from config.config import CONFIG
 
 def setup_cpu_environment():
-    """Setup CPU-only environment (same as your original)"""
+    """Setup CPU-only environment"""
     print("=" * 70)
     print("CONFIGURED FOR CPU-ONLY EXECUTION")
+    print(f"Using 285-patient dataset: {CONFIG['data_path']}")
     print("=" * 70)
     
     import tensorflow as tf
@@ -26,24 +34,26 @@ def main():
     setup_cpu_environment()
     
     print("🚀 PSG-AUDIO: RANDOM FOREST → CNN PIPELINE")
+    print("🔬 285-PATIENT DATASET ANALYSIS")
     print("=" * 70)
     print(f"Using data: {CONFIG['data_path']}")
     print(f"Channels: {len(CONFIG['channels'])}")
-    print(f"Excluding classes: {CONFIG['exclude_classes']}")
+    print(f"RF Config: n_estimators={CONFIG['rf_config']['n_estimators']}, max_features={CONFIG['rf_config']['max_features']}")
+    print(f"CNN Config: epochs={CONFIG['cnn_config']['epochs']}, batch_size={CONFIG['cnn_config']['batch_size']}")
     print("=" * 70)
 
-    # 1. Load and filter data
+    # 1. Load and validate data
     print("\n📂 STEP 1: LOADING DATA")
     print("-" * 40)
     X, y = load_data_streaming(CONFIG['data_path'], CONFIG['channels'], CONFIG['max_segments'])
-    
-    # Filter out excluded classes (e.g., MixedApnea)
-    X, y = filter_classes(X, y, CONFIG['exclude_classes'])
     
     # Validate data quality
     labels, y_encoded = np.unique(y, return_inverse=True)
     print(f"Labels found: {labels}")
     print(f"Final data shape: {X.shape}")
+    
+    # Enhanced data validation
+    imbalance_ratio = validate_data_quality(X, y_encoded)
     
     if len(labels) < 2:
         raise ValueError("Need at least 2 classes for classification!")
@@ -128,7 +138,7 @@ def main():
 
     # 6. Final comparison and results
     print("\n" + "="*70)
-    print("🎯 FINAL RESULTS COMPARISON")
+    print("🎯 FINAL RESULTS COMPARISON (285-patient dataset)")
     print("="*70)
     
     print(f"{'Feature Set':<20} {'Channels':<10} {'Accuracy':<12} {'Improvement':<12}")
@@ -173,7 +183,7 @@ def prepare_data_for_cnn(X, y, selected_channels, all_channels):
     return X_subset, y
 
 def save_results(results, feature_importance):
-    """Save results to files"""
+    """Save results to files with enhanced metadata"""
     import json
     from datetime import datetime
     
@@ -182,16 +192,28 @@ def save_results(results, feature_importance):
     
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     
+    # Enhanced results with config info
+    enhanced_results = {
+        'experiment_info': {
+            'dataset': '285_patients',
+            'timestamp': timestamp,
+            'config': CONFIG
+        },
+        'results': results
+    }
+    
     # Save results summary
-    results_file = os.path.join(CONFIG['output_dir'], f"pipeline_results_{timestamp}.json")
+    results_file = os.path.join(CONFIG['output_dir'], f"pipeline_results_285pt_{timestamp}.json")
     with open(results_file, 'w') as f:
-        json.dump(results, f, indent=2)
+        json.dump(enhanced_results, f, indent=2, default=str)
     
     # Save feature importance
-    feature_file = os.path.join(CONFIG['output_dir'], f"feature_importance_{timestamp}.txt")
+    feature_file = os.path.join(CONFIG['output_dir'], f"feature_importance_285pt_{timestamp}.txt")
     with open(feature_file, 'w') as f:
-        f.write("FEATURE IMPORTANCE RANKING\n")
-        f.write("=" * 50 + "\n")
+        f.write("FEATURE IMPORTANCE RANKING (285-patient dataset)\n")
+        f.write("=" * 60 + "\n")
+        f.write(f"RF Config: {CONFIG['rf_config']}\n")
+        f.write("=" * 60 + "\n")
         for i, (feature, importance) in enumerate(feature_importance, 1):
             f.write(f"{i:3d}. {feature:<40} {importance:.6f}\n")
     

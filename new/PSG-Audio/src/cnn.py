@@ -14,9 +14,9 @@ import tensorflow as tf
 tf.config.set_visible_devices([], 'GPU')
 
 def preprocess_data_for_cnn(X, y):
-    """Preprocess data for CNN (same as your original)"""
-    print("📊 PREPROCESSING FOR CNN:")
-    print("-" * 30)
+    """Preprocess data for CNN with enhanced validation"""
+    print("📊 PREPROCESSING FOR CNN (285-patient dataset):")
+    print("-" * 40)
     
     # Standardize the data (critical for CNNs)
     print("Standardizing data...")
@@ -50,8 +50,9 @@ def preprocess_data_for_cnn(X, y):
     return X_std, y, class_weights
 
 def create_improved_cnn(input_shape, num_classes):
-    """Enhanced CNN for sleep apnea detection (same as your original)"""
-    print(f"Creating CNN model for input shape: {input_shape}")
+    """Enhanced CNN optimized for large dataset"""
+    print(f"Creating optimized CNN for input shape: {input_shape}")
+    print(f"Using 285-patient dataset configuration")
     
     cnn_config = CONFIG['cnn_config']
     dropout_rates = cnn_config['dropout_rates']
@@ -74,7 +75,7 @@ def create_improved_cnn(input_shape, num_classes):
         # Third convolutional block - long-term apnea patterns
         Conv1D(128, kernel_size=5, activation='relu', padding='same'),
         BatchNormalization(),
-        Conv1D(128, kernel_size=21, activation='relu', padding='same'),  # ~0.1 second patterns
+        Conv1D(128, kernel_size=21, activation='relu', padding='same'),
         MaxPooling1D(pool_size=2),
         Dropout(dropout_rates[2]),
         
@@ -101,7 +102,7 @@ def create_improved_cnn(input_shape, num_classes):
         Dense(num_classes, activation='softmax')
     ])
     
-    # Optimizer with same config as original
+    # Optimizer with config parameters
     optimizer = Adam(
         learning_rate=cnn_config['learning_rate'],
         beta_1=0.9,
@@ -120,9 +121,10 @@ def create_improved_cnn(input_shape, num_classes):
     return model
 
 def train_and_evaluate_cnn(X, y, feature_description=""):
-    """Train and evaluate CNN (same logic as your original)"""
+    """Train and evaluate CNN with updated configuration"""
     print(f"\n🚀 TRAINING CNN {feature_description}")
-    print("=" * 60)
+    print(f"Dataset: 285-patient dataset")
+    print("=" * 70)
     
     # Preprocess data
     X_processed, y_processed, class_weights = preprocess_data_for_cnn(X, y)
@@ -144,11 +146,11 @@ def train_and_evaluate_cnn(X, y, feature_description=""):
     # Create model
     model = create_improved_cnn(X_train.shape[1:], y_processed.shape[1])
     
-    # Callbacks (same as your original)
+    # Callbacks with updated config
     cnn_config = CONFIG['cnn_config']
     callbacks = [
         EarlyStopping(
-            monitor='val_accuracy',
+            monitor=cnn_config.get('early_stopping_metric', 'val_loss'),
             patience=cnn_config['patience'],
             restore_best_weights=True,
             verbose=1
@@ -164,6 +166,8 @@ def train_and_evaluate_cnn(X, y, feature_description=""):
     
     # Train model
     print("🏋️ Starting CNN training...")
+    print(f"Configuration: {cnn_config['epochs']} epochs, batch size {cnn_config['batch_size']}")
+    
     history = model.fit(
         X_train, y_train,
         epochs=cnn_config['epochs'],
@@ -188,7 +192,7 @@ def train_and_evaluate_cnn(X, y, feature_description=""):
     y_test_classes = np.argmax(y_test, axis=1)
     
     # Classification report
-    label_names = ['CentralApnea', 'Normal', 'ObstructiveApnea']  # Assuming 3-class
+    label_names = ['CentralApnea', 'Normal', 'ObstructiveApnea']
     print(f"\nClassification Report {feature_description}:")
     print("-" * 40)
     report = classification_report(

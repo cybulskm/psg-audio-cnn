@@ -32,10 +32,11 @@ def filter_classes(X, y, exclude_classes):
     return X_filtered, y_filtered
 
 def load_data_streaming(data_path, channels, max_segments=None):
-    """Memory-efficient streaming loader (same as your original but with filtering)"""
+    """Memory-efficient streaming loader with improved error handling"""
     print(f"Loading data from: {data_path}")
     print(f"Target channels: {channels}")
     print(f"Max segments: {max_segments}")
+    print(f"Using 285-patient dataset")
     
     if not os.path.exists(data_path):
         raise FileNotFoundError(f"Data file not found: {data_path}")
@@ -54,7 +55,7 @@ def load_data_streaming(data_path, channels, max_segments=None):
         segments = segments[:max_segments]
         total_segments = len(segments)
     
-    print(f"Processing {total_segments} segments...")
+    print(f"Processing {total_segments} segments from 285-patient dataset...")
     
     # Process in small batches to control memory
     batch_size = 500
@@ -122,7 +123,7 @@ def load_data_streaming(data_path, channels, max_segments=None):
     X = np.concatenate(X_batches, axis=0)
     y = np.array(y_batches)
     
-    print(f"Final data loaded:")
+    print(f"Final data loaded from 285-patient dataset:")
     print(f"  Shape: {X.shape}")
     print(f"  Memory: {X.nbytes / 1e6:.1f} MB")
     print(f"  Valid segments: {valid_count}")
@@ -137,62 +138,8 @@ def load_data_streaming(data_path, channels, max_segments=None):
     
     return X, y
 
-def load_data(data_path, channels):
-    if not os.path.exists(data_path):
-        raise FileNotFoundError(f"Data file not found: {data_path}")
-    
-    with open(data_path, "rb") as f:
-        data = pickle.load(f)
-    
-    if isinstance(data, list):
-        segments = data
-    else:
-        segments = [data]
-        try:
-            while True:
-                segment = pickle.load(f)
-                segments.append(segment)
-        except EOFError:
-            pass
-    
-    X_all = []
-    y_all = []
-    
-    for seg in segments:
-        if not isinstance(seg, dict):
-            continue
-        
-        channel_data = []
-        valid = True
-        
-        for ch in channels:
-            if ch in seg and seg[ch] is not None:
-                data = np.array(seg[ch], dtype=np.float32)
-                if len(data) > 0:
-                    channel_data.append(data)
-                else:
-                    valid = False
-                    break
-            else:
-                valid = False
-                break
-        
-        if valid and len(channel_data) == len(channels):
-            min_len = min(len(ch) for ch in channel_data)
-            if min_len > 10:
-                channel_data = [ch[:min_len] for ch in channel_data]
-                X_all.append(np.array(channel_data).T)
-                y_all.append(seg.get('Label', 'Unknown'))
-    
-    if not X_all:
-        raise ValueError("No valid segments processed!")
-    
-    X = np.array(X_all, dtype=np.float32)
-    y = np.array(y_all)
-    
-    return X, y
-
 def preprocess_data(X):
+    """Standardize data per channel"""
     X_std = np.copy(X)
     for i in range(X.shape[-1]):
         channel_data = X[:, :, i]
@@ -201,3 +148,32 @@ def preprocess_data(X):
         if std > 0:
             X_std[:, :, i] = (channel_data - mean) / std
     return X_std
+
+def validate_data_quality(X, y):
+    """Enhanced data quality validation"""
+    print("\n🔍 DATA QUALITY CHECK (285-patient dataset):")
+    print("-" * 50)
+    
+    # Check for data imbalance
+    unique_labels, counts = np.unique(y, return_counts=True)
+    print(f"Class distribution: {dict(zip(unique_labels, counts))}")
+    
+    # Check for extreme imbalance
+    imbalance_ratio = max(counts) / min(counts)
+    if imbalance_ratio > 10:
+        print(f"⚠️  SEVERE CLASS IMBALANCE: {imbalance_ratio:.1f}:1")
+        print("   Using balanced class weights in models")
+    
+    # Check data ranges
+    print(f"Data range: [{X.min():.3f}, {X.max():.3f}]")
+    print(f"Data std: {X.std():.3f}")
+    
+    # Check for NaN/inf
+    nan_count = np.isnan(X).sum()
+    inf_count = np.isinf(X).sum()
+    if nan_count > 0 or inf_count > 0:
+        print(f"⚠️  Data issues: {nan_count} NaNs, {inf_count} Infs")
+    else:
+        print("✅ No NaN or Inf values found")
+    
+    return imbalance_ratio

@@ -8,8 +8,8 @@ from collections import Counter
 from config.config import CONFIG
 
 def balance_classes_smart(X, y, strategy='smart'):
-    """Smart balancing with better MixedApnea handling (same as your original)"""
-    print(f"Smart balancing...")
+    """Smart balancing optimized for 285-patient dataset"""
+    print(f"Smart balancing for large dataset (285 patients)...")
     
     # Get unique labels from categorical y
     y_labels = np.argmax(y, axis=1)
@@ -19,17 +19,14 @@ def balance_classes_smart(X, y, strategy='smart'):
     for i, (label_idx, count) in enumerate(zip(unique_labels, counts)):
         print(f"  Class {label_idx}: {count} ({count/len(y)*100:.1f}%)")
     
-    # Convert to class names for easier handling
-    class_names = ['CentralApnea', 'Normal', 'ObstructiveApnea']  # Assuming 3-class after MixedApnea removal
-    
     X_balanced = []
     y_balanced = []
     
-    # Target counts for better balance (same logic as your original)
+    # Updated target counts for larger dataset
     target_counts = {
-        0: 1000,  # CentralApnea
-        1: 5000,  # Normal  
-        2: 6000   # ObstructiveApnea
+        0: 2000,   # CentralApnea - increased
+        1: 8000,   # Normal - increased  
+        2: 10000   # ObstructiveApnea - increased
     }
     
     for label_idx in unique_labels:
@@ -78,7 +75,7 @@ def balance_classes_smart(X, y, strategy='smart'):
     return X_final, y_final
 
 def extract_advanced_features(channel_data):
-    """Extract advanced statistical features (same as your original)"""
+    """Extract comprehensive statistical features"""
     features = {}
     
     # Basic statistics
@@ -105,36 +102,12 @@ def extract_advanced_features(channel_data):
     
     return features
 
-def compute_feature_importance(X_train, y_train, channels):
-    from sklearn.ensemble import RandomForestClassifier
-    import numpy as np
-
-    rf = RandomForestClassifier(n_estimators=50, random_state=42, n_jobs=-1)
-    rf.fit(X_train, y_train)
-
-    importances = rf.feature_importances_
-    feature_importance = sorted(zip(channels, importances), key=lambda x: x[1], reverse=True)
-
-    return feature_importance
-
-def select_top_features(feature_importance, percentage):
-    top_n = int(len(feature_importance) * percentage)
-    return feature_importance[:top_n]
-
-def get_feature_importance_and_select(X_train, y_train, channels):
-    feature_importance = compute_feature_importance(X_train, y_train, channels)
-    
-    top_25_percent = select_top_features(feature_importance, 0.25)
-    top_50_percent = select_top_features(feature_importance, 0.50)
-
-    return top_25_percent, top_50_percent
-
 def get_feature_importance(X, y, channels):
-    """Get feature importance using Random Forest with same config as original"""
-    print("🔍 EXTRACTING ADVANCED FEATURES FOR RANDOM FOREST")
-    print("=" * 60)
+    """Get feature importance using optimized Random Forest"""
+    print("🔍 EXTRACTING FEATURES FOR RANDOM FOREST (285-patient dataset)")
+    print("=" * 70)
     
-    # Extract advanced features for each channel (same as your original)
+    # Extract advanced features for each channel
     feature_names = []
     X_features = []
     
@@ -156,14 +129,14 @@ def get_feature_importance(X, y, channels):
         
         X_features.append(sample_features)
         
-        if (sample_idx + 1) % 1000 == 0:
+        if (sample_idx + 1) % 2000 == 0:  # Progress every 2000 samples for large dataset
             print(f"  Processed {sample_idx + 1}/{X.shape[0]} samples")
     
     X_features = np.array(X_features)
     print(f"Feature extraction complete: {X_features.shape}")
     print(f"Total features: {len(feature_names)}")
     
-    # Balance classes (same as your original)
+    # Balance classes
     X_balanced, y_balanced = balance_classes_smart(X_features, y)
     
     # Convert y to label indices for Random Forest
@@ -178,12 +151,14 @@ def get_feature_importance(X, y, channels):
     class_weight_dict = dict(zip(np.unique(y_rf), class_weights))
     print(f"Class weights: {class_weight_dict}")
     
-    # Train Random Forest with same config as original
-    print("\n🌲 TRAINING RANDOM FOREST")
-    print("-" * 40)
+    # Train Random Forest with updated config
+    print("\n🌲 TRAINING RANDOM FOREST (Optimized for large dataset)")
+    print("-" * 50)
     
     rf_config = CONFIG['rf_config'].copy()
     rf_config['class_weight'] = class_weight_dict
+    
+    print(f"RF Config: {rf_config}")
     
     rf = RandomForestClassifier(**rf_config)
     rf.fit(X_balanced, y_rf)
@@ -192,23 +167,52 @@ def get_feature_importance(X, y, channels):
     importances = rf.feature_importances_
     feature_importance = sorted(zip(feature_names, importances), key=lambda x: x[1], reverse=True)
     
+    # Enhanced feature importance analysis
+    print(f"\n🔍 FEATURE IMPORTANCE ANALYSIS:")
+    print("-" * 40)
+    print(f"Total features extracted: {len(feature_importance)}")
+    print(f"Sum of all importances: {sum(imp for _, imp in feature_importance):.6f}")
+    print(f"Average importance: {np.mean([imp for _, imp in feature_importance]):.6f}")
+    print(f"Top feature importance: {feature_importance[0][1]:.6f}")
+    print(f"Bottom feature importance: {feature_importance[-1][1]:.6f}")
+    print(f"Importance ratio (top/bottom): {feature_importance[0][1]/feature_importance[-1][1]:.1f}:1")
+    
+    # Expected theoretical uniform distribution
+    uniform_importance = 1.0 / len(feature_importance)
+    print(f"Uniform distribution would be: {uniform_importance:.6f}")
+    print(f"Top feature vs uniform: {feature_importance[0][1]/uniform_importance:.1f}x higher")
+    
     print("\n📊 TOP 20 FEATURE IMPORTANCES:")
     print("-" * 50)
     for i, (feature, importance) in enumerate(feature_importance[:20], 1):
         print(f"{i:2d}. {feature:30s}: {importance:.4f}")
     
-    # Channel-level importance (same as your original)
+    # True channel-level importance
     channel_importance = {}
-    for feature, importance in feature_importance:
-        channel = feature.split('_')[0] + '_' + feature.split('_')[1]  # Handle "EEG A1-A2" format
-        if channel not in channel_importance:
-            channel_importance[channel] = 0
-        channel_importance[channel] += importance
+    for feature_name, importance in feature_importance:
+        # Extract channel name properly (handle compound names like "EEG A1-A2")
+        parts = feature_name.split('_')
+        if len(parts) >= 2:
+            # Join all parts except the last one (which is the feature type)
+            channel_name = '_'.join(parts[:-1])
+            
+            # Handle space-separated compound names
+            if channel_name in channels:
+                if channel_name not in channel_importance:
+                    channel_importance[channel_name] = 0
+                channel_importance[channel_name] += importance
     
-    print(f"\n🔬 CHANNEL-LEVEL IMPORTANCE:")
+    print(f"\n🔬 TRUE CHANNEL-LEVEL IMPORTANCE:")
     print("-" * 40)
-    for channel, importance in sorted(channel_importance.items(), key=lambda x: x[1], reverse=True):
-        print(f"{channel:15s}: {importance:.4f}")
+    sorted_channels = sorted(channel_importance.items(), key=lambda x: x[1], reverse=True)
+    for i, (channel, importance) in enumerate(sorted_channels, 1):
+        print(f"{i:2d}. {channel:15s}: {importance:.4f}")
+    
+    # Verify we have all 9 channels
+    print(f"\nChannel coverage: {len(channel_importance)}/9 channels")
+    missing_channels = set(channels) - set(channel_importance.keys())
+    if missing_channels:
+        print(f"Missing channels: {missing_channels}")
     
     return feature_importance
 
@@ -232,10 +236,10 @@ def convert_feature_names_to_channels(feature_names, channels):
     channel_indices = []
     
     for feature_name in feature_names:
-        # Extract channel name from feature name (e.g., "EEG A1-A2_mean" -> "EEG A1-A2")
+        # Extract channel name from feature name
         parts = feature_name.split('_')
         if len(parts) >= 2:
-            channel_name = '_'.join(parts[:-1])  # Everything except the last part (which is the feature type)
+            channel_name = '_'.join(parts[:-1])
             
             if channel_name in channels:
                 channel_idx = channels.index(channel_name)
