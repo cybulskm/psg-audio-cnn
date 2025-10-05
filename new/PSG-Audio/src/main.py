@@ -5,7 +5,6 @@ import pandas as pd
 from sklearn.model_selection import train_test_split
 from tensorflow.keras.utils import to_categorical
 import time
-import psutil
 from datetime import datetime
 
 # Add parent directory to path for config imports
@@ -28,15 +27,7 @@ except ImportError:
 
 from config.config import CONFIG
 
-def monitor_system_resources():
-    """Monitor system resources if enabled"""
-    if CONFIG['monitoring']['log_memory_usage']:
-        memory = psutil.virtual_memory()
-        cpu_percent = psutil.cpu_percent(interval=1)
-        print(f"💻 System Status:")
-        print(f"   Memory: {memory.used/1e9:.1f}GB / {memory.total/1e9:.1f}GB ({memory.percent:.1f}%)")
-        print(f"   CPU Usage: {cpu_percent:.1f}%")
-        print(f"   Available Memory: {memory.available/1e9:.1f}GB")
+
 
 def setup_optimized_environment():
     """Setup optimized environment for 1TB RAM system"""
