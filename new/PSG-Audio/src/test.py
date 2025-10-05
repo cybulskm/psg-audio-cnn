@@ -30,7 +30,7 @@ CHANNEL_RANKING = [
     ('EEG C4-A1', 0.105451),
     ('EOG ROC-A2', 0.105369),
     ('EEG A1-A2', 0.105110),
-    ('EOL LOC-A2', 0.102342),
+    ('EOG LOC-A2', 0.102342),  # ✅ Fixed: EOG not EOL
     ('EEG C3-A2', 0.100272),
     ('Leg 2', 0.096922),
     ('Leg 1', 0.096168),
