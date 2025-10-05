@@ -334,8 +334,9 @@ def train_and_evaluate_cnn(X, y, feature_description=""):
     print("-" * 50)
     cm = confusion_matrix(y_test_classes, y_pred_classes)
     
-    # Header
-    print(f"{'True\\Pred':<12} {' '.join([f'{label:>12s}' for label in label_names])}")
+    # Header - FIX THE F-STRING ERROR
+    header_label = "True\\Pred"  # Move backslash outside f-string
+    print(f"{header_label:<12} {' '.join([f'{label:>12s}' for label in label_names])}")
     print("-" * (12 + 13 * len(label_names)))
     
     # Matrix with percentages
