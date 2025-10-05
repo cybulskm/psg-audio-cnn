@@ -13,21 +13,19 @@ parent_dir = os.path.dirname(current_dir)
 sys.path.insert(0, parent_dir)
 sys.path.insert(0, current_dir)
 
-# Import modules (these will work when running from either location)
+# Simple import fix - try both import methods
 try:
-    # Try relative imports first (when running with -m)
+    # When running with python -m src.main
     from src.data_loader import load_data_streaming, filter_classes, validate_data_quality
     from src.random_forest import get_feature_importance, select_top_features, convert_feature_names_to_channels
     from src.cnn import train_and_evaluate_cnn
 except ImportError:
-    # Fall back to direct imports (when running from src directory)
+    # When running from src directory: python main.py
     from data_loader import load_data_streaming, filter_classes, validate_data_quality
     from random_forest import get_feature_importance, select_top_features, convert_feature_names_to_channels
     from cnn import train_and_evaluate_cnn
 
 from config.config import CONFIG
-
-
 
 def setup_optimized_environment():
     """Setup optimized environment for 1TB RAM system"""
@@ -50,7 +48,6 @@ def setup_optimized_environment():
     print(f"Available devices: {[d.device_type for d in tf.config.get_visible_devices()]}")
     print(f"CPU threads: intra={CONFIG['hardware']['n_processes']}, inter={CONFIG['hardware']['n_processes']}")
     
-    monitor_system_resources()
     print("=" * 80)
 
 def create_enhanced_output_directory():
@@ -121,7 +118,6 @@ def main():
     y_cat = to_categorical(y_encoded)
     print(f"   Categorical shape: {y_cat.shape}")
     
-    monitor_system_resources()
 
     # STEP 2: Advanced Random Forest Feature Selection
     print("\n🌲 STEP 2: OPTIMIZED RANDOM FOREST ANALYSIS")
@@ -184,8 +180,6 @@ def main():
     }
     print(f"   full_dataset: {X.shape}")
     
-    monitor_system_resources()
-
     # STEP 5: Comprehensive CNN Training & Evaluation
     print("\n🤖 STEP 5: COMPREHENSIVE CNN TRAINING")
     print("-" * 50)
@@ -219,7 +213,6 @@ def main():
         }
         
         print(f"✅ {dataset_name} completed: {test_acc:.4f} accuracy ({step_time:.1f}s)")
-        monitor_system_resources()
         
         # Save intermediate results
         save_intermediate_results(results, experiment_timestamp, dataset_name)
@@ -332,16 +325,11 @@ def save_comprehensive_results(results, feature_importance, timestamp, total_tim
     """Save comprehensive results with enhanced metadata"""
     import json
     
-    # Enhanced results structure
+    # Enhanced results structure  
     comprehensive_results = {
         'experiment_metadata': {
             'timestamp': timestamp,
             'dataset': '285_patients',
-            'system_config': {
-                'total_memory_gb': psutil.virtual_memory().total / 1e9,
-                'cpu_count': psutil.cpu_count(),
-                'optimization_level': '1TB_RAM_System'
-            },
             'pipeline_config': CONFIG,
             'total_execution_time': total_time
         },
@@ -366,4 +354,27 @@ def save_comprehensive_results(results, feature_importance, timestamp, total_tim
             'training_time_seconds': float(result['training_time']),
             'training_history': result.get('history', {})
         }
-   
+    
+    # Save results
+    results_file = os.path.join(CONFIG['output_dir'], f'comprehensive_results_{timestamp}.json')
+    with open(results_file, 'w') as f:
+        json.dump(comprehensive_results, f, indent=2)
+    
+    # Save feature importance
+    feature_file = os.path.join(CONFIG['output_dir'], f'feature_importance_{timestamp}.txt')
+    with open(feature_file, 'w') as f:
+        f.write("FEATURE IMPORTANCE RANKING\n")
+        f.write("=" * 60 + "\n")
+        for i, (feature, importance) in enumerate(feature_importance, 1):
+            f.write(f"{i:3d}. {feature:<40} {importance:.6f}\n")
+    
+    print(f"💾 Results saved: {results_file}")
+    print(f"💾 Features saved: {feature_file}")
+
+if __name__ == "__main__":
+    try:
+        results, timestamp = main()
+    except Exception as e:
+        print(f"❌ Pipeline error: {e}")
+        import traceback
+        traceback.print_exc()
