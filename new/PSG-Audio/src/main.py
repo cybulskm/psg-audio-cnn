@@ -28,352 +28,272 @@ except ImportError:
 from config.config import CONFIG
 
 def setup_optimized_environment():
-    """Setup optimized environment for 1TB RAM system"""
+    """Setup optimized environment"""
     print("=" * 80)
-    print("🚀 1TB RAM SYSTEM - MAXIMUM PERFORMANCE CONFIGURATION")
+    print("🚀 PSG-AUDIO CHANNEL ANALYSIS PIPELINE")
     print("=" * 80)
     print(f"Dataset: 285-patient dataset ({CONFIG['data_path']})")
-    print(f"Target memory usage: {CONFIG['hardware']['max_memory_gb']}GB")
-    print(f"CPU cores available: {CONFIG['hardware']['n_processes']}")
     print("=" * 80)
     
     import tensorflow as tf
     tf.config.set_visible_devices([], 'GPU')
     
-    # Configure TensorFlow for CPU optimization
-    tf.config.threading.set_intra_op_parallelism_threads(CONFIG['hardware']['n_processes'])
-    tf.config.threading.set_inter_op_parallelism_threads(CONFIG['hardware']['n_processes'])
-    
     print(f"TensorFlow version: {tf.__version__}")
     print(f"Available devices: {[d.device_type for d in tf.config.get_visible_devices()]}")
-    print(f"CPU threads: intra={CONFIG['hardware']['n_processes']}, inter={CONFIG['hardware']['n_processes']}")
-    
     print("=" * 80)
 
-def create_enhanced_output_directory():
-    """Create enhanced output directory structure"""
-    base_dir = CONFIG['output_dir']
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+def get_channel_importance_ranking(feature_importance, channels):
+    """Get channel-level importance ranking"""
+    channel_importance = {}
     
-    dirs_to_create = [
-        base_dir,
-        os.path.join(base_dir, 'checkpoints'),
-        os.path.join(base_dir, 'tensorboard'),
-        os.path.join(base_dir, 'plots'),
-        os.path.join(base_dir, 'models'),
-        os.path.join(base_dir, f'experiment_{timestamp}')
-    ]
+    # Sum up feature importances by channel
+    for feature_name, importance in feature_importance:
+        parts = feature_name.split('_')
+        if len(parts) >= 2:
+            channel_name = '_'.join(parts[:-1])
+            if channel_name in channels:
+                if channel_name not in channel_importance:
+                    channel_importance[channel_name] = 0
+                channel_importance[channel_name] += importance
     
-    for dir_path in dirs_to_create:
-        os.makedirs(dir_path, exist_ok=True)
+    # Sort channels by importance
+    sorted_channels = sorted(channel_importance.items(), key=lambda x: x[1], reverse=True)
     
-    return timestamp
+    print(f"\n🎯 CHANNEL IMPORTANCE RANKING:")
+    print("-" * 50)
+    for i, (channel, importance) in enumerate(sorted_channels, 1):
+        print(f"{i:2d}. {channel:<15s}: {importance:.6f}")
+    
+    return sorted_channels
+
+def create_channel_groups(sorted_channels):
+    """Create channel groups based on importance"""
+    total_channels = len(sorted_channels)
+    
+    # Define group sizes based on 9 channels
+    groups = {
+        'tier_1_top3': sorted_channels[:3],      # Top 3 channels (33%)
+        'tier_2_mid3': sorted_channels[3:6],     # Middle 3 channels (33%)  
+        'tier_3_bottom3': sorted_channels[6:9],  # Bottom 3 channels (33%)
+        'top_5_channels': sorted_channels[:5],   # Top 5 channels (56%)
+        'top_7_channels': sorted_channels[:7],   # Top 7 channels (78%)
+        'all_9_channels': sorted_channels[:9]    # All 9 channels (100%)
+    }
+    
+    print(f"\n📊 CHANNEL GROUPING STRATEGY:")
+    print("-" * 50)
+    
+    for group_name, channel_list in groups.items():
+        channels_only = [ch for ch, _ in channel_list]
+        importance_sum = sum(imp for _, imp in channel_list)
+        print(f"{group_name:15s}: {len(channels_only)} channels, importance={importance_sum:.4f}")
+        print(f"                 {channels_only}")
+    
+    return groups
 
 def main():
-    """Main orchestration function with full optimization"""
+    """Main function with channel-focused analysis"""
     pipeline_start = time.time()
     setup_optimized_environment()
     
-    print("🧬 PSG-AUDIO: ADVANCED ML PIPELINE")
-    print("🔬 285-PATIENT DATASET - 1TB RAM OPTIMIZED")
+    print("🧬 PSG-AUDIO: CHANNEL-BASED ANALYSIS PIPELINE")
+    print("🔬 285-PATIENT DATASET")
     print("=" * 80)
-    
-    # Create output directories
-    experiment_timestamp = create_enhanced_output_directory()
-    
-    # Configuration summary
-    print("📋 PIPELINE CONFIGURATION:")
-    print("-" * 50)
-    print(f"Data loading: {'Full in-memory' if CONFIG['data_loading']['load_full_in_memory'] else 'Streaming'}")
-    print(f"RF trees: {CONFIG['rf_config']['n_estimators']}")
-    print(f"RF max depth: {CONFIG['rf_config']['max_depth']}")
-    print(f"CNN epochs: {CONFIG['cnn_config']['epochs']}")
-    print(f"CNN batch size: {CONFIG['cnn_config']['batch_size']}")
-    print(f"Cross-validation: {CONFIG['training']['cross_validation_folds']} folds")
-    print(f"Advanced features: {CONFIG['training']['use_advanced_augmentation']}")
-    print("-" * 50)
 
-    # STEP 1: Advanced Data Loading
-    print("\n📂 STEP 1: OPTIMIZED DATA LOADING")
+    # STEP 1: Load Data
+    print("\n📂 STEP 1: DATA LOADING")
     print("-" * 50)
     
     step_start = time.time()
     X, y = load_data_streaming(CONFIG['data_path'], CONFIG['channels'], CONFIG['max_segments'])
     
-    # Enhanced data validation
     labels, y_encoded = np.unique(y, return_inverse=True)
-    print(f"✅ Data loaded successfully:")
-    print(f"   Shape: {X.shape}")
-    print(f"   Labels: {labels}")
-    print(f"   Memory: {X.nbytes / 1e9:.2f} GB")
+    print(f"✅ Data loaded: {X.shape}, Labels: {labels}")
     
     imbalance_ratio = validate_data_quality(X, y_encoded)
     step_time = time.time() - step_start
     print(f"   Loading time: {step_time:.1f}s")
     
-    if len(labels) < 2:
-        raise ValueError("❌ Need at least 2 classes for classification!")
-    
-    # Convert to categorical
     y_cat = to_categorical(y_encoded)
-    print(f"   Categorical shape: {y_cat.shape}")
-    
 
-    # STEP 2: Advanced Random Forest Feature Selection
-    print("\n🌲 STEP 2: OPTIMIZED RANDOM FOREST ANALYSIS")
+    # STEP 2: Random Forest Analysis
+    print("\n🌲 STEP 2: RANDOM FOREST CHANNEL ANALYSIS")
     print("-" * 50)
     
     step_start = time.time()
     feature_importance = get_feature_importance(X, y_cat, CONFIG['channels'])
     step_time = time.time() - step_start
-    print(f"✅ Random Forest analysis completed in {step_time:.1f}s")
+    print(f"✅ Random Forest completed in {step_time:.1f}s")
 
-    # STEP 3: Multi-tier Feature Selection
-    print("\n📊 STEP 3: MULTI-TIER FEATURE SELECTION")
+    # STEP 3: Channel-Based Grouping
+    print("\n📊 STEP 3: CHANNEL IMPORTANCE & GROUPING")
     print("-" * 50)
     
-    # Multiple feature selection percentages for comprehensive analysis
-    feature_sets = {
-        'top_10_percent': 0.10,
-        'top_25_percent': 0.25,
-        'top_50_percent': 0.50,
-        'top_75_percent': 0.75
-    }
+    # Get channel importance ranking
+    sorted_channels = get_channel_importance_ranking(feature_importance, CONFIG['channels'])
     
-    selected_feature_sets = {}
-    
-    for set_name, percentage in feature_sets.items():
-        features = select_top_features(feature_importance, percentage=percentage)
-        channels = convert_feature_names_to_channels(features, CONFIG['channels'])
-        selected_feature_sets[set_name] = {
-            'features': features,
-            'channels': channels,
-            'n_channels': len(channels),
-            'percentage': percentage
-        }
-        print(f"✅ {set_name}: {len(features)} features → {len(channels)} channels")
+    # Create channel groups
+    channel_groups = create_channel_groups(sorted_channels)
 
-    # STEP 4: Advanced Dataset Preparation
-    print("\n🔧 STEP 4: ADVANCED DATASET PREPARATION")
+    # STEP 4: Prepare Channel-Based Datasets
+    print("\n🔧 STEP 4: CHANNEL-BASED DATASET PREPARATION")
     print("-" * 50)
     
     datasets = {}
     
-    for set_name, feature_set in selected_feature_sets.items():
-        X_subset, y_subset = prepare_optimized_data_for_cnn(
-            X, y_cat, feature_set['channels'], CONFIG['channels']
-        )
-        datasets[set_name] = {
+    for group_name, channel_list in channel_groups.items():
+        channels_only = [ch for ch, _ in channel_list]
+        X_subset, y_subset = prepare_channel_data_for_cnn(X, y_cat, channels_only, CONFIG['channels'])
+        
+        datasets[group_name] = {
             'X': X_subset,
             'y': y_subset,
-            'channels': feature_set['channels'],
-            'n_channels': feature_set['n_channels']
+            'channels': channels_only,
+            'n_channels': len(channels_only),
+            'total_importance': sum(imp for _, imp in channel_list)
         }
-        print(f"   {set_name}: {X_subset.shape}")
-    
-    # Add full dataset
-    datasets['full_dataset'] = {
-        'X': X,
-        'y': y_cat,
-        'channels': CONFIG['channels'],
-        'n_channels': len(CONFIG['channels'])
-    }
-    print(f"   full_dataset: {X.shape}")
-    
-    # STEP 5: Comprehensive CNN Training & Evaluation
-    print("\n🤖 STEP 5: COMPREHENSIVE CNN TRAINING")
+        print(f"   {group_name:15s}: {X_subset.shape}")
+
+    # STEP 5: CNN Training on Channel Groups
+    print("\n🤖 STEP 5: CNN TRAINING ON CHANNEL GROUPS")
     print("-" * 50)
     
     results = {}
-    training_order = ['top_10_percent', 'top_25_percent', 'top_50_percent', 'top_75_percent', 'full_dataset']
+    training_order = ['tier_1_top3', 'top_5_channels', 'top_7_channels', 'all_9_channels', 'tier_2_mid3', 'tier_3_bottom3']
     
-    for i, dataset_name in enumerate(training_order, 1):
-        dataset = datasets[dataset_name]
+    for i, group_name in enumerate(training_order, 1):
+        dataset = datasets[group_name]
         
-        print(f"\n{'='*20} CNN {i}/5: {dataset_name.upper()} {'='*20}")
-        print(f"Channels: {dataset['n_channels']}")
-        print(f"Selected: {dataset['channels']}")
+        print(f"\n{'='*15} CNN {i}/6: {group_name.upper()} {'='*15}")
+        print(f"Channels ({dataset['n_channels']}): {dataset['channels']}")
+        print(f"Combined importance: {dataset['total_importance']:.4f}")
         
         step_start = time.time()
         
-        # Train and evaluate
         test_acc, model, history = train_and_evaluate_cnn(
             dataset['X'], dataset['y'],
-            f"{dataset_name} ({dataset['n_channels']} channels)"
+            f"{group_name} ({dataset['n_channels']} channels)"
         )
         
         step_time = time.time() - step_start
         
-        results[dataset_name] = {
+        results[group_name] = {
             'accuracy': test_acc,
             'n_channels': dataset['n_channels'],
             'channels': dataset['channels'],
             'training_time': step_time,
-            'history': history.history if history else None
+            'total_importance': dataset['total_importance']
         }
         
-        print(f"✅ {dataset_name} completed: {test_acc:.4f} accuracy ({step_time:.1f}s)")
-        
-        # Save intermediate results
-        save_intermediate_results(results, experiment_timestamp, dataset_name)
+        print(f"✅ {group_name} completed: {test_acc:.4f} accuracy ({step_time:.1f}s)")
 
-    # STEP 6: Comprehensive Analysis & Reporting
+    # STEP 6: Channel Group Analysis
     print("\n" + "="*80)
-    print("🎯 COMPREHENSIVE RESULTS ANALYSIS")
+    print("🎯 CHANNEL GROUP PERFORMANCE ANALYSIS")
     print("="*80)
     
     total_time = time.time() - pipeline_start
     
-    # Performance comparison table
-    print(f"\n📊 PERFORMANCE COMPARISON:")
-    print("-" * 80)
-    print(f"{'Dataset':<15} {'Channels':<10} {'Accuracy':<12} {'Time':<10} {'Improvement':<12}")
-    print("-" * 80)
+    # Performance table
+    print(f"\n📊 CHANNEL GROUP COMPARISON:")
+    print("-" * 90)
+    print(f"{'Group':<15} {'Channels':<10} {'Accuracy':<12} {'Importance':<12} {'Time':<10} {'Efficiency':<12}")
+    print("-" * 90)
     
-    baseline_acc = results['full_dataset']['accuracy']
+    baseline_acc = results['all_9_channels']['accuracy']
     
-    for dataset_name in training_order:
-        result = results[dataset_name]
-        improvement = result['accuracy'] - baseline_acc
-        improvement_str = f"{improvement:+.4f}" if dataset_name != 'full_dataset' else "baseline"
+    for group_name in training_order:
+        result = results[group_name]
+        efficiency = result['accuracy'] / result['n_channels']  # Accuracy per channel
         
-        print(f"{dataset_name:<15} {result['n_channels']:<10} "
-              f"{result['accuracy']:.4f}      {result['training_time']:.1f}s     "
-              f"{improvement_str:<12}")
+        print(f"{group_name:<15} {result['n_channels']:^10} "
+              f"{result['accuracy']:.4f}      {result['total_importance']:.4f}      "
+              f"{result['training_time']:.1f}s     {efficiency:.4f}")
     
-    # Find best performing model
-    best_dataset = max(results.keys(), key=lambda k: results[k]['accuracy'])
-    best_result = results[best_dataset]
+    # Find best performing configurations
+    best_overall = max(results.keys(), key=lambda k: results[k]['accuracy'])
+    best_efficiency = max(results.keys(), key=lambda k: results[k]['accuracy'] / results[k]['n_channels'])
     
-    print(f"\n🏆 BEST PERFORMANCE:")
-    print(f"   Model: {best_dataset}")
-    print(f"   Accuracy: {best_result['accuracy']:.4f}")
-    print(f"   Channels: {best_result['n_channels']}")
-    print(f"   Improvement over baseline: {best_result['accuracy'] - baseline_acc:+.4f}")
-    print(f"   Training time: {best_result['training_time']:.1f}s")
+    print(f"\n🏆 BEST RESULTS:")
+    print(f"   Highest Accuracy: {best_overall} ({results[best_overall]['accuracy']:.4f})")
+    print(f"   Best Efficiency:  {best_efficiency} ({results[best_efficiency]['accuracy'] / results[best_efficiency]['n_channels']:.4f} acc/channel)")
     
-    # Efficiency analysis
-    print(f"\n⚡ EFFICIENCY ANALYSIS:")
+    # Channel tier analysis
+    print(f"\n📈 CHANNEL TIER ANALYSIS:")
     print("-" * 50)
-    for dataset_name in ['top_10_percent', 'top_25_percent', 'top_50_percent']:
-        result = results[dataset_name]
-        baseline_result = results['full_dataset']
-        
-        acc_ratio = result['accuracy'] / baseline_result['accuracy']
-        channel_ratio = result['n_channels'] / baseline_result['n_channels']
-        time_ratio = result['training_time'] / baseline_result['training_time']
-        
-        efficiency = acc_ratio / channel_ratio  # Accuracy per channel
-        
-        print(f"{dataset_name}:")
-        print(f"   Accuracy efficiency: {efficiency:.3f} (acc/channel ratio)")
-        print(f"   Time efficiency: {time_ratio:.3f} (relative to full)")
-        print(f"   Channel reduction: {(1-channel_ratio)*100:.1f}%")
+    tier_results = {
+        'tier_1_top3': results['tier_1_top3'],
+        'tier_2_mid3': results['tier_2_mid3'], 
+        'tier_3_bottom3': results['tier_3_bottom3']
+    }
     
-    # Save comprehensive results
-    save_comprehensive_results(results, feature_importance, experiment_timestamp, total_time)
+    for tier_name, result in tier_results.items():
+        improvement = result['accuracy'] - baseline_acc
+        print(f"{tier_name:15s}: {result['accuracy']:.4f} ({improvement:+.4f} vs full)")
+        print(f"                 Channels: {result['channels']}")
     
-    print(f"\n✅ PIPELINE COMPLETED SUCCESSFULLY!")
+    # Save results
+    save_channel_analysis_results(results, sorted_channels, total_time)
+    
+    print(f"\n✅ CHANNEL ANALYSIS COMPLETED!")
     print(f"Total time: {total_time:.1f}s ({total_time/60:.1f} minutes)")
-    print(f"Results saved with timestamp: {experiment_timestamp}")
     
-    return results, experiment_timestamp
+    return results
 
-def prepare_optimized_data_for_cnn(X, y, selected_channels, all_channels):
-    """Prepare optimized data subsets for CNN training"""
+def prepare_channel_data_for_cnn(X, y, selected_channels, all_channels):
+    """Prepare data subset based on selected channels"""
     channel_indices = [all_channels.index(ch) for ch in selected_channels if ch in all_channels]
     
     if not channel_indices:
-        raise ValueError(f"❌ No valid channels found in selection: {selected_channels}")
+        raise ValueError(f"❌ No valid channels found: {selected_channels}")
     
     X_subset = X[:, :, channel_indices]
-    
-    # Memory optimization
-    if CONFIG['data_loading']['prefetch_to_device']:
-        X_subset = X_subset.astype(np.float32)
-    
-    print(f"   Selected {len(channel_indices)} channels: {[all_channels[i] for i in channel_indices]}")
-    print(f"   Subset memory: {X_subset.nbytes / 1e9:.2f} GB")
+    print(f"   Selected channels: {[all_channels[i] for i in channel_indices]}")
     
     return X_subset, y
 
-def save_intermediate_results(results, timestamp, current_dataset):
-    """Save intermediate results during training"""
+def save_channel_analysis_results(results, sorted_channels, total_time):
+    """Save channel analysis results"""
     import json
+    from datetime import datetime
     
-    filename = os.path.join(CONFIG['output_dir'], f'intermediate_results_{timestamp}.json')
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     
-    # Convert numpy arrays to lists for JSON serialization
-    serializable_results = {}
-    for key, value in results.items():
-        serializable_results[key] = {
-            'accuracy': float(value['accuracy']),
-            'n_channels': int(value['n_channels']),
-            'channels': value['channels'],
-            'training_time': float(value['training_time'])
-        }
-    
-    with open(filename, 'w') as f:
-        json.dump({
+    # Create results structure
+    analysis_results = {
+        'experiment_info': {
             'timestamp': timestamp,
-            'completed_datasets': list(results.keys()),
-            'current_dataset': current_dataset,
-            'results': serializable_results
-        }, f, indent=2)
-
-def save_comprehensive_results(results, feature_importance, timestamp, total_time):
-    """Save comprehensive results with enhanced metadata"""
-    import json
-    
-    # Enhanced results structure  
-    comprehensive_results = {
-        'experiment_metadata': {
-            'timestamp': timestamp,
-            'dataset': '285_patients',
-            'pipeline_config': CONFIG,
-            'total_execution_time': total_time
+            'dataset': '285_patients_channel_analysis',
+            'total_time': total_time
         },
-        'feature_analysis': {
-            'total_features': len(feature_importance),
-            'top_10_features': [(feat, float(imp)) for feat, imp in feature_importance[:10]],
-            'feature_importance_summary': {
-                'max_importance': float(max(imp for _, imp in feature_importance)),
-                'min_importance': float(min(imp for _, imp in feature_importance)),
-                'mean_importance': float(np.mean([imp for _, imp in feature_importance]))
-            }
-        },
-        'model_results': {}
+        'channel_ranking': [
+            {'rank': i+1, 'channel': ch, 'importance': float(imp)}
+            for i, (ch, imp) in enumerate(sorted_channels)
+        ],
+        'group_results': {}
     }
     
-    # Process results for serialization
-    for dataset_name, result in results.items():
-        comprehensive_results['model_results'][dataset_name] = {
+    # Process group results
+    for group_name, result in results.items():
+        analysis_results['group_results'][group_name] = {
             'accuracy': float(result['accuracy']),
             'n_channels': int(result['n_channels']),
             'channels': result['channels'],
-            'training_time_seconds': float(result['training_time']),
-            'training_history': result.get('history', {})
+            'training_time': float(result['training_time']),
+            'total_importance': float(result['total_importance']),
+            'efficiency': float(result['accuracy'] / result['n_channels'])
         }
     
     # Save results
-    results_file = os.path.join(CONFIG['output_dir'], f'comprehensive_results_{timestamp}.json')
+    results_file = os.path.join(CONFIG['output_dir'], f'channel_analysis_{timestamp}.json')
     with open(results_file, 'w') as f:
-        json.dump(comprehensive_results, f, indent=2)
+        json.dump(analysis_results, f, indent=2)
     
-    # Save feature importance
-    feature_file = os.path.join(CONFIG['output_dir'], f'feature_importance_{timestamp}.txt')
-    with open(feature_file, 'w') as f:
-        f.write("FEATURE IMPORTANCE RANKING\n")
-        f.write("=" * 60 + "\n")
-        for i, (feature, importance) in enumerate(feature_importance, 1):
-            f.write(f"{i:3d}. {feature:<40} {importance:.6f}\n")
-    
-    print(f"💾 Results saved: {results_file}")
-    print(f"💾 Features saved: {feature_file}")
+    print(f"💾 Channel analysis saved: {results_file}")
 
 if __name__ == "__main__":
     try:
-        results, timestamp = main()
+        results = main()
     except Exception as e:
         print(f"❌ Pipeline error: {e}")
         import traceback
