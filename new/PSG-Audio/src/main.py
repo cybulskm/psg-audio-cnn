@@ -8,14 +8,24 @@ import time
 import psutil
 from datetime import datetime
 
-# Add parent directory to path
-parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# Add parent directory to path for config imports
+current_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.dirname(current_dir)
 sys.path.insert(0, parent_dir)
+sys.path.insert(0, current_dir)
 
-# Import modules
-from data_loader import load_data_streaming, filter_classes, validate_data_quality
-from random_forest import get_feature_importance, select_top_features, convert_feature_names_to_channels
-from cnn import train_and_evaluate_cnn
+# Import modules (these will work when running from either location)
+try:
+    # Try relative imports first (when running with -m)
+    from src.data_loader import load_data_streaming, filter_classes, validate_data_quality
+    from src.random_forest import get_feature_importance, select_top_features, convert_feature_names_to_channels
+    from src.cnn import train_and_evaluate_cnn
+except ImportError:
+    # Fall back to direct imports (when running from src directory)
+    from data_loader import load_data_streaming, filter_classes, validate_data_quality
+    from random_forest import get_feature_importance, select_top_features, convert_feature_names_to_channels
+    from cnn import train_and_evaluate_cnn
+
 from config.config import CONFIG
 
 def monitor_system_resources():
