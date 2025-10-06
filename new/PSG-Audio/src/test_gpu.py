@@ -1,6 +1,13 @@
 import os
 import subprocess
 import sys
+
+# Set environment variables for GPU access
+os.environ['CUDA_VISIBLE_DEVICES'] = '0,1,2,3,4,5,6,7'  # Enable all 8 GPUs
+os.environ['LD_LIBRARY_PATH'] = '/usr/local/cuda-12.9/lib64'
+os.environ['TF_FORCE_GPU_ALLOW_GROWTH'] = 'true'
+os.environ['XLA_FLAGS'] = '--xla_gpu_cuda_data_dir=/usr/local/cuda-12.9'
+
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # Reduce TF logging
 
 def check_nvidia_smi():
