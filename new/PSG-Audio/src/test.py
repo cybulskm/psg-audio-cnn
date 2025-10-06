@@ -3,10 +3,10 @@ import sys
 import numpy as np
 from sklearn.model_selection import train_test_split
 from tensorflow.keras.utils import to_categorical
-import time
-import json
 from datetime import datetime
 import random
+import time
+import json
 
 # Add parent directory to path for config imports
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -24,13 +24,13 @@ except ImportError:
 
 from config.config import CONFIG
 
-# Channel importance ranking from your results
+# Remove previous CPU-only forcing. Let cnn module configure GPUs.
 CHANNEL_RANKING = [
     ('ECG I', 0.128733),
     ('EEG C4-A1', 0.105451),
     ('EOG ROC-A2', 0.105369),
     ('EEG A1-A2', 0.105110),
-    ('EOG LOC-A2', 0.102342),  # ✅ Fixed: EOG not EOL
+    ('EOG LOC-A2', 0.102342),
     ('EEG C3-A2', 0.100272),
     ('Leg 2', 0.096922),
     ('Leg 1', 0.096168),

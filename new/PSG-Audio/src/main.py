@@ -13,6 +13,24 @@ parent_dir = os.path.dirname(current_dir)
 sys.path.insert(0, parent_dir)
 sys.path.insert(0, current_dir)
 
+# Ensure TensorFlow can use GPUs and configure memory growth
+try:
+    import tensorflow as tf
+    gpus = tf.config.list_physical_devices('GPU')
+    if gpus:
+        for gpu in gpus:
+            tf.config.experimental.set_memory_growth(gpu, True)
+    # Optionally enable mixed precision if available
+    try:
+        from tensorflow.keras import mixed_precision
+        mixed_precision.set_global_policy('mixed_float16')
+        print("Mixed precision enabled: mixed_float16")
+    except Exception:
+        pass
+    print(f"TensorFlow {tf.__version__} - GPUs detected: {len(gpus)}")
+except Exception as e:
+    print("TensorFlow GPU setup warning:", e)
+
 # Simple import fix - try both import methods
 try:
     # When running with python -m src.main

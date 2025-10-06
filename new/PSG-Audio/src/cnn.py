@@ -1,3 +1,5 @@
+import os
+import sys
 import numpy as np
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report, confusion_matrix
@@ -5,17 +7,109 @@ from sklearn.utils.class_weight import compute_class_weight
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Conv1D, MaxPooling1D, Dense, Dropout
 from tensorflow.keras.layers import BatchNormalization, GlobalAveragePooling1D
-from tensorflow.keras.optimizers import Adam, AdamW
-from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau, ModelCheckpoint, TensorBoard
+from tensorflow.keras.optimizers import Adam
+from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau
 from tensorflow.keras.regularizers import l2
-import tensorflow as tf
-import psutil
-import time
-import os
+
+# Add parent directory to path for config import
+parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, parent_dir)
 from config.config import CONFIG
 
-# Configure TensorFlow to use CPU only
-tf.config.set_visible_devices([], 'GPU')
+# Configure GPUs for TensorFlow: enable memory growth and mixed precision
+try:
+    import tensorflow as tf
+    gpus = tf.config.list_physical_devices('GPU')
+    if gpus:
+        for gpu in gpus:
+            tf.config.experimental.set_memory_growth(gpu, True)
+        print(f"✅ GPUs configured: {len(gpus)} physical GPU(s) found")
+        try:
+            from tensorflow.keras import mixed_precision
+            mixed_precision.set_global_policy('mixed_float16')
+            print("✅ Mixed precision policy set to mixed_float16")
+        except Exception:
+            print("ℹ️ mixed_precision not enabled / not available")
+    else:
+        print("⚠️ No GPUs found — running on CPU")
+except Exception as e:
+    print("⚠️ TensorFlow GPU configuration warning:", e)
+
+# When building model, ensure final softmax uses float32 when mixed_precision is active.
+def create_advanced_cnn(input_shape, num_classes):
+    """Create advanced CNN optimized for GPU acceleration"""
+    cnn_config = CONFIG.get('cnn_config', {})
+    dropout_rates = cnn_config.get('dropout_rates', [0.2]*6)
+    weight_decay = cnn_config.get('weight_decay', 1e-4)
+
+    model = Sequential([
+        Conv1D(64, kernel_size=7, activation='relu', input_shape=input_shape,
+               padding='same', kernel_regularizer=l2(weight_decay)),
+        BatchNormalization(),
+        Conv1D(64, kernel_size=11, activation='relu', padding='same',
+               kernel_regularizer=l2(weight_decay)),
+        MaxPooling1D(pool_size=2),
+        Dropout(dropout_rates[0]),
+
+        Conv1D(128, kernel_size=9, activation='relu', padding='same',
+               kernel_regularizer=l2(weight_decay)),
+        BatchNormalization(),
+        Conv1D(128, kernel_size=15, activation='relu', padding='same',
+               kernel_regularizer=l2(weight_decay)),
+        MaxPooling1D(pool_size=2),
+        Dropout(dropout_rates[1]),
+
+        Conv1D(256, kernel_size=7, activation='relu', padding='same',
+               kernel_regularizer=l2(weight_decay)),
+        BatchNormalization(),
+        Conv1D(256, kernel_size=21, activation='relu', padding='same',
+               kernel_regularizer=l2(weight_decay)),
+        MaxPooling1D(pool_size=2),
+        Dropout(dropout_rates[2]),
+
+        Conv1D(512, kernel_size=11, activation='relu', padding='same',
+               kernel_regularizer=l2(weight_decay)),
+        BatchNormalization(),
+        Conv1D(512, kernel_size=31, activation='relu', padding='same',
+               kernel_regularizer=l2(weight_decay)),
+        MaxPooling1D(pool_size=2),
+        Dropout(dropout_rates[3]),
+
+        GlobalAveragePooling1D(),
+
+        Dense(1024, activation='relu', kernel_regularizer=l2(weight_decay)),
+        BatchNormalization(),
+        Dropout(dropout_rates[4]),
+
+        Dense(512, activation='relu', kernel_regularizer=l2(weight_decay)),
+        BatchNormalization(),
+        Dropout(dropout_rates[5]),
+
+        Dense(256, activation='relu', kernel_regularizer=l2(weight_decay)),
+        Dropout(0.3),
+
+        # final layer: force float32 output when using mixed precision to avoid dtype mismatch
+        Dense(num_classes, activation='softmax', dtype='float32')
+    ])
+
+    # Optimizer
+    optimizer = Adam(learning_rate=cnn_config.get('learning_rate', 1e-3))
+    # Wrap optimizer with LossScaleOptimizer when mixed precision is active
+    try:
+        from tensorflow.keras import mixed_precision
+        if mixed_precision.global_policy().name == 'mixed_float16':
+            optimizer = mixed_precision.LossScaleOptimizer(optimizer)
+    except Exception:
+        pass
+
+    model.compile(
+        optimizer=optimizer,
+        loss='categorical_crossentropy',
+        metrics=['accuracy']
+    )
+
+    print(f"✅ Model built. Params: {model.count_params():,}")
+    return model
 
 def monitor_memory_usage():
     """Monitor memory usage if enabled"""
@@ -75,109 +169,6 @@ def preprocess_data_for_cnn(X, y):
     
     monitor_memory_usage()
     return X_std, y, class_weights
-
-def create_advanced_cnn(input_shape, num_classes):
-    """Create advanced CNN optimized for 1TB RAM system"""
-    print(f"🏗️  BUILDING ADVANCED CNN ARCHITECTURE")
-    print(f"Input shape: {input_shape}")
-    print(f"Target classes: {num_classes}")
-    print(f"Optimization level: 1TB RAM System")
-    
-    cnn_config = CONFIG['cnn_config']
-    dropout_rates = cnn_config['dropout_rates']
-    weight_decay = cnn_config.get('weight_decay', 1e-4)
-    
-    print(f"Dropout rates: {dropout_rates}")
-    print(f"Weight decay: {weight_decay}")
-    
-    model = Sequential([
-        # First convolutional block - fine-grained feature detection
-        Conv1D(64, kernel_size=7, activation='relu', input_shape=input_shape, 
-               padding='same', kernel_regularizer=l2(weight_decay)),
-        BatchNormalization(),
-        Conv1D(64, kernel_size=11, activation='relu', padding='same',
-               kernel_regularizer=l2(weight_decay)),
-        MaxPooling1D(pool_size=2),
-        Dropout(dropout_rates[0]),
-        
-        # Second block - medium-term patterns
-        Conv1D(128, kernel_size=9, activation='relu', padding='same',
-               kernel_regularizer=l2(weight_decay)),
-        BatchNormalization(),
-        Conv1D(128, kernel_size=15, activation='relu', padding='same',
-               kernel_regularizer=l2(weight_decay)),
-        MaxPooling1D(pool_size=2),
-        Dropout(dropout_rates[1]),
-        
-        # Third block - long-term apnea patterns
-        Conv1D(256, kernel_size=7, activation='relu', padding='same',
-               kernel_regularizer=l2(weight_decay)),
-        BatchNormalization(),
-        Conv1D(256, kernel_size=21, activation='relu', padding='same',
-               kernel_regularizer=l2(weight_decay)),
-        MaxPooling1D(pool_size=2),
-        Dropout(dropout_rates[2]),
-        
-        # Fourth block - global context
-        Conv1D(512, kernel_size=11, activation='relu', padding='same',
-               kernel_regularizer=l2(weight_decay)),
-        BatchNormalization(),
-        Conv1D(512, kernel_size=31, activation='relu', padding='same',
-               kernel_regularizer=l2(weight_decay)),
-        MaxPooling1D(pool_size=2),
-        Dropout(dropout_rates[3]),
-        
-        # Global feature extraction
-        GlobalAveragePooling1D(),
-        
-        # Enhanced dense layers
-        Dense(1024, activation='relu', kernel_regularizer=l2(weight_decay)),
-        BatchNormalization(),
-        Dropout(dropout_rates[4]),
-        
-        Dense(512, activation='relu', kernel_regularizer=l2(weight_decay)),
-        BatchNormalization(),
-        Dropout(dropout_rates[5]),
-        
-        Dense(256, activation='relu', kernel_regularizer=l2(weight_decay)),
-        Dropout(0.3),
-        
-        # Output layer
-        Dense(num_classes, activation='softmax')
-    ])
-    
-    # Advanced optimizer selection
-    optimizer_type = cnn_config.get('use_advanced_optimizer', 'adam')
-    
-    if optimizer_type == 'adamw':
-        optimizer = AdamW(
-            learning_rate=cnn_config['learning_rate'],
-            weight_decay=cnn_config.get('weight_decay', 1e-4),
-            beta_1=0.9,
-            beta_2=0.999,
-            epsilon=1e-7
-        )
-        print("Using AdamW optimizer with weight decay")
-    else:
-        optimizer = Adam(
-            learning_rate=cnn_config['learning_rate'],
-            beta_1=0.9,
-            beta_2=0.999,
-            epsilon=1e-7
-        )
-        print("Using Adam optimizer")
-    
-    model.compile(
-        optimizer=optimizer,
-        loss='categorical_crossentropy',
-        metrics=['accuracy']
-    )
-    
-    print(f"✅ Advanced CNN created successfully")
-    print(f"Total parameters: {model.count_params():,}")
-    print(f"Trainable parameters: {sum([np.prod(layer.get_weights()[0].shape) for layer in model.layers if layer.get_weights()])}")
-    
-    return model
 
 def setup_advanced_callbacks(feature_description=""):
     """Setup advanced callbacks for training monitoring"""
