@@ -48,23 +48,24 @@ def parse_annotations(rml_file_path):
     return events
 
 def extract_features_from_edf(edf_file_path):
-    """Extract signal data from EDF file and return means for each channel"""
+    """Extract signal data from EDF file"""
     edf_file = pyedflib.EdfReader(edf_file_path)
     signal_labels = edf_file.getSignalLabels()
-    channel_means = {}
+    signals = {}
+    sampling_rates = {}
 
     for channel in signal_labels:
         try:
             signal_index = signal_labels.index(channel)
-            signal_data = edf_file.readSignal(signal_index)
-            # Calculate mean for entire signal
-            channel_means[channel] = np.mean(signal_data)
+            signals[channel] = edf_file.readSignal(signal_index)
+            sampling_rates[channel] = edf_file.getSampleFrequency(signal_index)
         except ValueError:
             print(f"⚠️ Channel {channel} not found in the EDF file.")
-            channel_means[channel] = None
+            signals[channel] = None
+            sampling_rates[channel] = None
 
     edf_file.close()
-    return channel_means
+    return signals, sampling_rates
 
 def determine_segment_label(event_type):
     """Map event type to standardized labels"""
@@ -83,30 +84,43 @@ def determine_segment_label(event_type):
         return 'Normal'
 
 def preprocess_and_label(edf_file_path, annotations):
-    """Create segments with single mean value per channel"""
+    """Create segments with means calculated over each event's duration"""
     
     print(f"\n📊 Processing EDF: {os.path.basename(edf_file_path)}")
     
-    # Load EDF data - now just gets means
-    channel_means = extract_features_from_edf(edf_file_path)
+    # Load EDF data
+    signals, sampling_rates = extract_features_from_edf(edf_file_path)
     
-    print(f"Channels found: {list(channel_means.keys())}")
+    print(f"Channels found: {list(signals.keys())}")
     
-    # Create segments list
     segments = []
     
     # Process each annotation
     for event_type, start_time, duration in annotations:
         segment_data = {}
         
-        # Add channel means
-        for channel, mean_value in channel_means.items():
-            segment_data[channel] = mean_value
+        # Calculate mean for each channel during the event window
+        for channel, signal in signals.items():
+            if signal is not None and sampling_rates[channel]:
+                # Convert time to samples
+                start_sample = int(start_time * sampling_rates[channel])
+                end_sample = int((start_time + duration) * sampling_rates[channel])
+                
+                # Ensure we don't exceed signal length
+                if end_sample <= len(signal):
+                    # Calculate mean for just the event window
+                    window_mean = np.mean(signal[start_sample:end_sample])
+                    segment_data[channel] = window_mean
+                else:
+                    segment_data[channel] = None
+            else:
+                segment_data[channel] = None
         
         # Add metadata
         label = determine_segment_label(event_type)
         segment_data['Label'] = label
         segment_data['EventType'] = event_type
+        segment_data['Duration'] = duration
         
         segments.append(segment_data)
     
