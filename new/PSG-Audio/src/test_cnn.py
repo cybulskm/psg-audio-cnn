@@ -41,7 +41,7 @@ def setup_cpu_environment():
     tf.config.set_visible_devices([], 'GPU')
     print(f"TensorFlow: {tf.__version__} (CPU-only)")
 
-def create_simple_model(input_shape):
+def create_simple_model(input_shape, num_classes):
     """Create a simplified 1D CNN model"""
     model = Sequential([
         Conv1D(32, kernel_size=3, activation='relu', input_shape=input_shape),
@@ -51,7 +51,7 @@ def create_simple_model(input_shape):
         Flatten(),
         Dense(100, activation='relu'),
         Dropout(0.5),
-        Dense(5, activation='softmax')  # 5 sleep stages
+        Dense(num_classes, activation='softmax')  # Dynamic number of classes
     ])
     
     model.compile(
@@ -67,7 +67,8 @@ def train_model(X, y, run_name):
         X, y, test_size=0.2, random_state=42
     )
     
-    model = create_simple_model((X.shape[1], X.shape[2]))
+    num_classes = y.shape[1]  # Get number of classes from one-hot encoded labels
+    model = create_simple_model((X.shape[1], X.shape[2]), num_classes)
     
     history = model.fit(
         X_train, y_train,
@@ -135,7 +136,9 @@ def main():
     
     X, y = load_data_streaming(CONFIG['data_path'], CONFIG['channels'])
     labels, y_encoded = np.unique(y, return_inverse=True)
-    y_cat = to_categorical(y_encoded)
+    num_classes = len(labels)
+    print(f"Number of classes: {num_classes}")
+    y_cat = to_categorical(y_encoded, num_classes=num_classes)
     
     print(f"Data loaded: X shape={X.shape}, unique labels={labels}")
     validate_data_quality(X, y_encoded)
