@@ -80,6 +80,8 @@ def determine_segment_label(event_type):
     elif 'apnea' in event_lower:
         # Default to obstructive if type is unclear
         return 'ObstructiveApnea'
+    elif "hypopnea" in event_lower:
+        return 'Hypopnea'
     else:
         return 'Normal'
 
@@ -118,9 +120,8 @@ def preprocess_and_label(edf_files, annotations):
         
         # Find which file(s) contain this event
         for file_info in file_durations:
-            if (start_time >= file_info['start'] and start_time < file_info['end']) or \
-               (event_end > file_info['start'] and event_end <= file_info['end']):
-                
+            # Check if event overlaps with this file
+            if not (event_end <= file_info['start'] or start_time >= file_info['end']):
                 # Load EDF data
                 signals, sampling_rates = extract_features_from_edf(file_info['file'])
                 
@@ -137,25 +138,35 @@ def preprocess_and_label(edf_files, annotations):
                         start_sample = int(local_start * sampling_rates[channel])
                         end_sample = int(local_end * sampling_rates[channel])
                         
-                        # Ensure we don't exceed signal length
-                        if end_sample <= len(signal):
-                            window_mean = np.mean(signal[start_sample:end_sample])
-                            segment_data[channel] = window_mean
+                        # Add safety checks
+                        if start_sample < end_sample and end_sample <= len(signal):
+                            try:
+                                window_mean = np.mean(signal[start_sample:end_sample])
+                                if not np.isnan(window_mean):
+                                    segment_data[channel] = window_mean
+                                else:
+                                    segment_data[channel] = None
+                            except Exception as e:
+                                print(f"⚠️ Error calculating mean for {channel}: {e}")
+                                print(f"  Start: {start_sample}, End: {end_sample}, Len: {len(signal)}")
+                                segment_data[channel] = None
                         else:
                             segment_data[channel] = None
                     else:
                         segment_data[channel] = None
                 
-                # Add metadata
-                label = determine_segment_label(event_type)
-                segment_data['Label'] = label
-                segment_data['EventType'] = event_type
-                segment_data['Duration'] = duration
-                segment_data['StartTime'] = start_time
-                segment_data['FileStart'] = file_info['start']
-                
-                segments.append(segment_data)
-                break  # Use first file that contains the event
+                # Only add segment if we have valid data
+                if any(v is not None for v in segment_data.values()):
+                    # Add metadata
+                    label = determine_segment_label(event_type)
+                    segment_data['Label'] = label
+                    segment_data['EventType'] = event_type
+                    segment_data['Duration'] = duration
+                    segment_data['StartTime'] = start_time
+                    segment_data['FileStart'] = file_info['start']
+                    
+                    segments.append(segment_data)
+                    break  # Use first file that contains valid data
     
     return segments
 
