@@ -3,11 +3,66 @@ import sys
 import tensorflow as tf
 import subprocess
 import platform
+import glob
 
 # Set environment variables for CUDA
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # Reduce TF logging
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 os.environ['CUDA_VISIBLE_DEVICES'] = '0,1,2,3,4,5,6,7'
 os.environ['TF_FORCE_GPU_ALLOW_GROWTH'] = 'true'
+
+def check_cuda_driver():
+    """Verify CUDA driver installation"""
+    print("\n🔍 CUDA Driver Check:")
+    print("-" * 50)
+    
+    # Check nvidia kernel module
+    try:
+        lsmod = subprocess.check_output('lsmod | grep nvidia', shell=True).decode()
+        print("✅ NVIDIA kernel module loaded:")
+        print(lsmod.strip())
+    except:
+        print("❌ NVIDIA kernel module not loaded")
+    
+    # Check driver files
+    driver_paths = [
+        '/usr/lib/x86_64-linux-gnu/libcuda.so',
+        '/usr/lib/x86_64-linux-gnu/libnvidia-ml.so',
+        '/dev/nvidia0'
+    ]
+    
+    for path in driver_paths:
+        if os.path.exists(path):
+            print(f"✅ Found: {path}")
+        else:
+            print(f"❌ Missing: {path}")
+
+def check_cuda_compatibility():
+    """Check CUDA and TensorFlow version compatibility"""
+    print("\n🔍 Version Compatibility Check:")
+    print("-" * 50)
+    
+    # Get TensorFlow's CUDA requirements
+    build_info = tf.sysconfig.get_build_info()
+    tf_cuda = build_info.get('cuda_version', 'Unknown')
+    tf_cudnn = build_info.get('cudnn_version', 'Unknown')
+    
+    print(f"TensorFlow {tf.__version__}:")
+    print(f"- Requires CUDA: {tf_cuda}")
+    print(f"- Requires cuDNN: {tf_cudnn}")
+    
+    # Get installed CUDA version
+    try:
+        nvcc = subprocess.check_output(['nvcc', '--version']).decode()
+        cuda_version = nvcc.split('release ')[1].split(',')[0]
+        print(f"\nInstalled CUDA: {cuda_version}")
+        
+        if cuda_version.startswith('12') and tf_cuda.startswith('11'):
+            print("⚠️ Version mismatch: TensorFlow expects CUDA 11.x but CUDA 12.x is installed")
+            print("Consider either:")
+            print("1. Downgrading CUDA to version 11.8")
+            print("2. Using tensorflow-nightly which supports CUDA 12.x")
+    except:
+        print("❌ Could not determine CUDA version")
 
 def check_environment():
     """Check CUDA environment setup"""
@@ -103,7 +158,13 @@ def run_simple_gpu_test():
     except Exception as e:
         print(f"❌ GPU test failed: {str(e)}")
 
-if __name__ == "__main__":
+def main():
+    """Main verification routine"""
+    check_cuda_driver()
+    check_cuda_compatibility()
     check_environment()
     print_system_info()
     run_simple_gpu_test()
+
+if __name__ == "__main__":
+    main()
