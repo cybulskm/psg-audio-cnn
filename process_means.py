@@ -83,46 +83,79 @@ def determine_segment_label(event_type):
     else:
         return 'Normal'
 
-def preprocess_and_label(edf_file_path, annotations):
-    """Create segments with means calculated over each event's duration"""
+def get_edf_duration(edf_file_path):
+    """Get duration of EDF file in seconds"""
+    edf_file = pyedflib.EdfReader(edf_file_path)
+    duration = edf_file.getFileDuration()
+    edf_file.close()
+    return duration
+
+def preprocess_and_label(edf_files, annotations):
+    """Process events across multiple EDF files"""
+    print("\n📊 Processing EDF files...")
     
-    print(f"\n📊 Processing EDF: {os.path.basename(edf_file_path)}")
+    # Calculate cumulative durations
+    file_durations = []
+    cumulative_duration = 0
     
-    # Load EDF data
-    signals, sampling_rates = extract_features_from_edf(edf_file_path)
+    for edf_file in sorted(edf_files):
+        duration = get_edf_duration(edf_file)
+        file_durations.append({
+            'file': edf_file,
+            'start': cumulative_duration,
+            'end': cumulative_duration + duration,
+            'duration': duration
+        })
+        cumulative_duration += duration
     
-    print(f"Channels found: {list(signals.keys())}")
+    print(f"📈 Total recording duration: {cumulative_duration:.1f}s")
     
     segments = []
     
     # Process each annotation
     for event_type, start_time, duration in annotations:
-        segment_data = {}
+        event_end = start_time + duration
         
-        # Calculate mean for each channel during the event window
-        for channel, signal in signals.items():
-            if signal is not None and sampling_rates[channel]:
-                # Convert time to samples
-                start_sample = int(start_time * sampling_rates[channel])
-                end_sample = int((start_time + duration) * sampling_rates[channel])
+        # Find which file(s) contain this event
+        for file_info in file_durations:
+            if (start_time >= file_info['start'] and start_time < file_info['end']) or \
+               (event_end > file_info['start'] and event_end <= file_info['end']):
                 
-                # Ensure we don't exceed signal length
-                if end_sample <= len(signal):
-                    # Calculate mean for just the event window
-                    window_mean = np.mean(signal[start_sample:end_sample])
-                    segment_data[channel] = window_mean
-                else:
-                    segment_data[channel] = None
-            else:
-                segment_data[channel] = None
-        
-        # Add metadata
-        label = determine_segment_label(event_type)
-        segment_data['Label'] = label
-        segment_data['EventType'] = event_type
-        segment_data['Duration'] = duration
-        
-        segments.append(segment_data)
+                # Load EDF data
+                signals, sampling_rates = extract_features_from_edf(file_info['file'])
+                
+                segment_data = {}
+                
+                # Calculate mean for each channel during the event window
+                for channel, signal in signals.items():
+                    if signal is not None and sampling_rates[channel]:
+                        # Adjust start and end times relative to this file
+                        local_start = max(0, start_time - file_info['start'])
+                        local_end = min(file_info['duration'], event_end - file_info['start'])
+                        
+                        # Convert time to samples
+                        start_sample = int(local_start * sampling_rates[channel])
+                        end_sample = int(local_end * sampling_rates[channel])
+                        
+                        # Ensure we don't exceed signal length
+                        if end_sample <= len(signal):
+                            window_mean = np.mean(signal[start_sample:end_sample])
+                            segment_data[channel] = window_mean
+                        else:
+                            segment_data[channel] = None
+                    else:
+                        segment_data[channel] = None
+                
+                # Add metadata
+                label = determine_segment_label(event_type)
+                segment_data['Label'] = label
+                segment_data['EventType'] = event_type
+                segment_data['Duration'] = duration
+                segment_data['StartTime'] = start_time
+                segment_data['FileStart'] = file_info['start']
+                
+                segments.append(segment_data)
+                break  # Use first file that contains the event
     
     return segments
 
@@ -155,30 +188,18 @@ def process_patient(patient_id, rml_path, edf_files):
             print(f"❌ No annotations found for patient {patient_id}")
             return []
 
-        all_segments = []
-
-        # Process each EDF file for this patient
-        for i, edf_file in enumerate(sorted(edf_files)):
-            print(f"\n📄 Processing EDF {i+1}/{len(edf_files)}: {os.path.basename(edf_file)}")
-
-            try:
-                segments = preprocess_and_label(edf_file, annotations)
-                all_segments.extend(segments)
-                print(f"✅ Added {len(segments)} segments from this EDF")
-
-            except Exception as e:
-                print(f"❌ Error processing EDF {edf_file}: {e}")
-                continue
-
+        # Process all EDF files together
+        segments = preprocess_and_label(edf_files, annotations)
+        
         print(f"\n🎯 Patient {patient_id} Summary:")
-        print(f"  Total segments: {len(all_segments)}")
+        print(f"  Total segments: {len(segments)}")
 
-        if all_segments:
-            patient_labels = Counter(seg['Label'] for seg in all_segments)
+        if segments:
+            patient_labels = Counter(seg['Label'] for seg in segments)
             for label, count in patient_labels.items():
                 print(f"  {label}: {count}")
 
-        return all_segments
+        return segments
 
     except Exception as e:
         print(f"❌ Error processing patient {patient_id}: {e}")
