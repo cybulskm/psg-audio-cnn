@@ -7,6 +7,8 @@ from sklearn.preprocessing import StandardScaler
 import csv
 import pickle
 from collections import Counter
+from scipy import signal
+import statistics
 
 relevant_channels = ["EEG A1-A2", "EEG C3-A2", "EEG C4-A1", "EOG LOC-A2", "EOG ROC-A2", "EMG Chin", "Leg 1", "Leg 2", "ECG I"]
 
@@ -51,25 +53,21 @@ def extract_features_from_edf(edf_file_path):
     """Extract signal data from EDF file"""
     edf_file = pyedflib.EdfReader(edf_file_path)
     signal_labels = edf_file.getSignalLabels()
-    features = {channel: [] for channel in relevant_channels}
+    signals = {}
     sampling_rates = {}
 
     for channel in signal_labels:
-        if channel in relevant_channels:
-            try:
-                signal_index = edf_file.getSignalLabels().index(channel)
-                signal_data = edf_file.readSignal(signal_index)
-                sampling_rate = edf_file.getSampleFrequency(signal_index)
-                features[channel] = signal_data
-                sampling_rates[channel] = sampling_rate
-            except ValueError:
-                print(f"⚠️ Channel {channel} not found in the EDF file.")
-                features[channel] = None
-                sampling_rates[channel] = None
+        try:
+            signal_index = signal_labels.index(channel)
+            signals[channel] = edf_file.readSignal(signal_index)
+            sampling_rates[channel] = edf_file.getSampleFrequency(signal_index)
+        except ValueError:
+            print(f"⚠️ Channel {channel} not found in the EDF file.")
+            signals[channel] = None
+            sampling_rates[channel] = None
 
     edf_file.close()
-    features_df = pd.DataFrame(features)
-    return features_df, sampling_rates
+    return signals, sampling_rates
 
 def determine_segment_label(event_type):
     """Map event type to standardized labels"""
@@ -84,160 +82,181 @@ def determine_segment_label(event_type):
     elif 'apnea' in event_lower:
         # Default to obstructive if type is unclear
         return 'ObstructiveApnea'
+    elif "hypopnea" in event_lower:
+        return 'Hypopnea'
     else:
         return 'Normal'
 
-def preprocess_and_label(edf_file_path, annotations, sampling_rate=200):
-    """Fixed preprocessing that creates segments for ALL apnea events"""
+def get_edf_duration(edf_file_path):
+    """Get duration of EDF file in seconds"""
+    edf_file = pyedflib.EdfReader(edf_file_path)
+    duration = edf_file.getFileDuration()
+    edf_file.close()
+    return duration
+
+def find_most_common_frequency(edf_files):
+    """Determine the most common sampling frequency across all files and channels"""
+    all_frequencies = []
     
-    print(f"\n📊 Processing EDF: {os.path.basename(edf_file_path)}")
+    for edf_file in edf_files:
+        with pyedflib.EdfReader(edf_file) as edf:
+            n_signals = edf.signals_in_file
+            for i in range(n_signals):
+                all_frequencies.append(edf.getSampleFrequency(i))
     
-    # Load EDF data
-    features_df, sampling_rates = extract_features_from_edf(edf_file_path)
-    edf_duration = len(features_df) / sampling_rate
+    most_common_freq = statistics.mode(all_frequencies)
+    print(f"\n📊 Most common sampling frequency: {most_common_freq} Hz")
+    return most_common_freq
+
+def resample_signal(signal_data, orig_freq, target_freq):
+    """Resample signal to target frequency"""
+    if orig_freq == target_freq:
+        return signal_data
     
-    print(f"EDF duration: {edf_duration:.1f}s, DataFrame shape: {features_df.shape}")
-    
-    # Separate events by type
-    apnea_events = []
-    normal_events = []
-    
-    for event_type, start_time, duration in annotations:
-        if start_time < edf_duration:  # Only events within this EDF
-            if "apnea" in event_type.lower():
-                apnea_events.append((event_type, start_time, duration))
-            else:
-                normal_events.append((event_type, start_time, duration))
-    
-    print(f"Events in this EDF: {len(apnea_events)} apnea, {len(normal_events)} normal")
-    
+    # Calculate number of samples for target frequency
+    n_samples = int(len(signal_data) * target_freq / orig_freq)
+    return signal.resample(signal_data, n_samples)
+
+def process_edf_file(edf_file_path, file_events, file_start_time, target_freq):
+    """Process all events for a single EDF file at once"""
     segments = []
-    segment_length = 30  # seconds
-    window_size = segment_length * sampling_rate
+    window_size = 60  # Fixed 60-second window
     
-    # Process ALL apnea events - create segments based on event timing
-    processed_apnea = 0
-    apnea_type_counts = Counter()
-    
-    for event_type, start_time, duration in apnea_events:
-        # Create a 30s segment that contains this apnea event
-        # Center the segment around the apnea event
-        event_center = start_time + (duration / 2)
-        segment_start = max(0, event_center - (segment_length / 2))
-        
-        # Ensure segment doesn't go beyond EDF duration
-        if segment_start + segment_length > edf_duration:
-            segment_start = edf_duration - segment_length
-        
-        if segment_start >= 0:
-            start_idx = int(segment_start * sampling_rate)
-            end_idx = start_idx + window_size
+    try:
+        with pyedflib.EdfReader(edf_file_path) as edf_file:
+            duration = edf_file.getFileDuration()
+            signal_labels = edf_file.getSignalLabels()
             
-            # Ensure we don't exceed data bounds
-            if end_idx <= len(features_df):
+            # Load all signals at once and resample to target frequency
+            signals = {}
+            for channel in signal_labels:
+                try:
+                    signal_index = signal_labels.index(channel)
+                    orig_freq = edf_file.getSampleFrequency(signal_index)
+                    signal_data = edf_file.readSignal(signal_index)
+                    
+                    # Resample to target frequency
+                    resampled_signal = resample_signal(signal_data, orig_freq, target_freq)
+                    signals[channel] = resampled_signal
+                except ValueError:
+                    print(f"⚠️ Channel {channel} not found")
+                    signals[channel] = None
+            
+            # Process all events for this file
+            for event_type, start_time, event_duration in file_events:
                 segment_data = {}
-                valid_segment = True
                 
-                # Extract data for all channels
-                for channel in relevant_channels:
-                    if channel in features_df.columns and sampling_rates.get(channel) is not None:
-                        channel_data = features_df[channel].iloc[start_idx:end_idx].tolist()
-                        
-                        # Ensure exact window size
-                        if len(channel_data) < window_size:
-                            channel_data += [0.0] * (window_size - len(channel_data))
-                        elif len(channel_data) > window_size:
-                            channel_data = channel_data[:window_size]
-                        
-                        segment_data[channel] = channel_data
-                    else:
-                        # Fill missing channels with zeros
-                        segment_data[channel] = [0.0] * window_size
+                # Convert global time to local file time
+                local_start = start_time - file_start_time
                 
-                # Determine proper label
-                label = determine_segment_label(event_type)
-                segment_data['Label'] = label
-                segment_data['StartTime'] = segment_start
-                segment_data['OriginalEvent'] = event_type
-                segment_data['EventStart'] = start_time
-                segment_data['EventDuration'] = duration
+                # Calculate window boundaries centered on event
+                event_center = local_start + (event_duration / 2)
+                window_start = event_center - (window_size / 2)
+                window_end = event_center + (window_size / 2)
                 
-                segments.append(segment_data)
-                processed_apnea += 1
-                apnea_type_counts[label] += 1
-    
-    print(f"✅ Created {processed_apnea} apnea segments")
-    for apnea_type, count in apnea_type_counts.items():
-        print(f"  {apnea_type}: {count}")
-    
-    # Create normal segments to balance the dataset
-    # Target: equal number of normal segments as total apnea segments
-    target_normal_count = len(segments)
-    
-    if target_normal_count > 0 and normal_events:
-        print(f"🎯 Creating {target_normal_count} normal segments...")
-        
-        # Get time periods occupied by apnea events (with some buffer)
-        occupied_periods = []
-        for event_type, start_time, duration in apnea_events:
-            # Add 15s buffer on each side
-            buffer_start = max(0, start_time - 15)
-            buffer_end = min(edf_duration, start_time + duration + 15)
-            occupied_periods.append((buffer_start, buffer_end))
-        
-        # Create normal segments from non-apnea periods
-        normal_segments_created = 0
-        max_attempts = target_normal_count * 3  # Prevent infinite loops
-        attempts = 0
-        
-        while normal_segments_created < target_normal_count and attempts < max_attempts:
-            attempts += 1
-            
-            # Pick a random time that allows for a full 30s segment
-            random_start = np.random.uniform(0, max(0, edf_duration - segment_length))
-            segment_end = random_start + segment_length
-            
-            # Check if this overlaps with any apnea period
-            overlaps = False
-            for occupied_start, occupied_end in occupied_periods:
-                if not (segment_end <= occupied_start or random_start >= occupied_end):
-                    overlaps = True
-                    break
-            
-            if not overlaps:
-                start_idx = int(random_start * sampling_rate)
-                end_idx = start_idx + window_size
-                
-                if end_idx <= len(features_df):
-                    segment_data = {}
-                    
-                    for channel in relevant_channels:
-                        if channel in features_df.columns and sampling_rates.get(channel) is not None:
-                            channel_data = features_df[channel].iloc[start_idx:end_idx].tolist()
+                # Ensure window is within file bounds
+                if 0 <= window_start < duration and window_end <= duration:
+                    for channel, signal in signals.items():
+                        if signal is not None:
+                            # Convert time to samples using target frequency
+                            start_sample = int(window_start * target_freq)
+                            end_sample = int(window_end * target_freq)
                             
-                            if len(channel_data) < window_size:
-                                channel_data += [0.0] * (window_size - len(channel_data))
-                            elif len(channel_data) > window_size:
-                                channel_data = channel_data[:window_size]
-                        
-                            segment_data[channel] = channel_data
-                        else:
-                            segment_data[channel] = [0.0] * window_size
+                            # Extract exactly 60 seconds worth of samples
+                            samples_needed = int(window_size * target_freq)
+                            
+                            if start_sample >= 0 and end_sample <= len(signal):
+                                try:
+                                    window_data = signal[start_sample:end_sample]
+                                    if len(window_data) == samples_needed:
+                                        segment_data[channel] = window_data.tolist()
+                                    else:
+                                        print(f"⚠️ Window size mismatch for {channel}")
+                                except Exception as e:
+                                    print(f"⚠️ Error with {channel}: {e}")
                     
-                    segment_data['Label'] = 'Normal'
-                    segment_data['StartTime'] = random_start
-                    segment_data['OriginalEvent'] = 'Normal'
-                    
-                    segments.append(segment_data)
-                    normal_segments_created += 1
-        
-        print(f"✅ Created {normal_segments_created} normal segments")
-    
-    # Final segment count
-    final_labels = Counter(seg['Label'] for seg in segments)
-    print(f"📊 Final segments: {dict(final_labels)} (Total: {len(segments)})")
+                    if segment_data:
+                        segment_data.update({
+                            'Label': determine_segment_label(event_type),
+                            'EventType': event_type,
+                            'Duration': event_duration,
+                            'StartTime': start_time,
+                            'FileStart': file_start_time,
+                            'WindowStart': window_start + file_start_time,  # Convert back to global time
+                            'WindowEnd': window_end + file_start_time,      # Convert back to global time
+                            'SamplingRate': target_freq
+                        })
+                        segments.append(segment_data)
+            
+            # Explicitly delete large objects
+            del signals
+            
+    except Exception as e:
+        print(f"❌ Error processing {os.path.basename(edf_file_path)}: {e}")
     
     return segments
+
+def preprocess_and_label(edf_files, annotations):
+    """Process events across multiple EDF files"""
+    print("\n📊 Processing EDF files...")
+    
+    # Find most common sampling frequency
+    target_freq = find_most_common_frequency(edf_files)
+    
+    # Map events to files
+    file_durations = []
+    cumulative_duration = 0
+    file_events = {}
+    
+    # Calculate file durations first
+    for edf_file in sorted(edf_files):
+        duration = get_edf_duration(edf_file)
+        file_info = {
+            'file': edf_file,
+            'start': cumulative_duration,
+            'end': cumulative_duration + duration,
+            'duration': duration
+        }
+        file_durations.append(file_info)
+        file_events[edf_file] = []
+        cumulative_duration += duration
+    
+    # Map events to files
+    for event in annotations:
+        event_type, start_time, duration = event
+        event_end = start_time + duration
+        
+        for file_info in file_durations:
+            if not (event_end <= file_info['start'] or start_time >= file_info['end']):
+                file_events[file_info['file']].append(event)
+    
+    # Process each file once
+    all_segments = []
+    for file_info in file_durations:
+        if file_events[file_info['file']]:
+            segments = process_edf_file(
+                file_info['file'],
+                file_events[file_info['file']],
+                file_info['start'],
+                target_freq
+            )
+            all_segments.extend(segments)
+    
+    return all_segments
+
+def save_results(segments, output_file):
+    """Save results as CSV with one row per event"""
+    if not segments:
+        return
+    
+    # Get all column names
+    columns = ['Label', 'EventType'] + [col for col in segments[0].keys() 
+                                      if col not in ['Label', 'EventType']]
+    
+    with open(output_file, 'w', newline='') as f:
+        writer = csv.DictWriter(f, fieldnames=columns)
+        writer.writeheader()
+        writer.writerows(segments)
 
 def process_patient(patient_id, rml_path, edf_files):
     """Process all files for a single patient"""
@@ -245,40 +264,28 @@ def process_patient(patient_id, rml_path, edf_files):
     print(f"🏥 Processing Patient: {patient_id}")
     print(f"📁 RML file: {os.path.basename(rml_path)}")
     print(f"📁 EDF files ({len(edf_files)}): {[os.path.basename(f) for f in edf_files]}")
-    
+
     try:
         # Parse annotations from RML file
         annotations = parse_annotations(rml_path)
-        
+
         if not annotations:
             print(f"❌ No annotations found for patient {patient_id}")
             return []
-        
-        all_segments = []
-        
-        # Process each EDF file for this patient
-        for i, edf_file in enumerate(sorted(edf_files)):
-            print(f"\n📄 Processing EDF {i+1}/{len(edf_files)}: {os.path.basename(edf_file)}")
-            
-            try:
-                segments = preprocess_and_label(edf_file, annotations)
-                all_segments.extend(segments)
-                print(f"✅ Added {len(segments)} segments from this EDF")
-                
-            except Exception as e:
-                print(f"❌ Error processing EDF {edf_file}: {e}")
-                continue
+
+        # Process all EDF files together
+        segments = preprocess_and_label(edf_files, annotations)
         
         print(f"\n🎯 Patient {patient_id} Summary:")
-        print(f"  Total segments: {len(all_segments)}")
-        
-        if all_segments:
-            patient_labels = Counter(seg['Label'] for seg in all_segments)
+        print(f"  Total segments: {len(segments)}")
+
+        if segments:
+            patient_labels = Counter(seg['Label'] for seg in segments)
             for label, count in patient_labels.items():
                 print(f"  {label}: {count}")
-        
-        return all_segments
-        
+
+        return segments
+
     except Exception as e:
         print(f"❌ Error processing patient {patient_id}: {e}")
         return []
@@ -404,7 +411,7 @@ def main():
             print(f"  Normal/Apnea ratio: {balance_ratio:.2f}:1")
         
         # Save to file
-        output_file = os.path.join(output_dir, "285_patients_processed.pkl")
+        output_file = os.path.join(output_dir, "285_patients_processed_v2.pkl")
         with open(output_file, 'wb') as f:
             pickle.dump(all_segments, f)
         
