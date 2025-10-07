@@ -48,28 +48,23 @@ def parse_annotations(rml_file_path):
     return events
 
 def extract_features_from_edf(edf_file_path):
-    """Extract signal data from EDF file"""
+    """Extract signal data from EDF file and return means for each channel"""
     edf_file = pyedflib.EdfReader(edf_file_path)
     signal_labels = edf_file.getSignalLabels()
-    features = {}
-    sampling_rates = {}
+    channel_means = {}
 
-    # Use all channels instead of just relevant ones
     for channel in signal_labels:
         try:
             signal_index = signal_labels.index(channel)
             signal_data = edf_file.readSignal(signal_index)
-            sampling_rate = edf_file.getSampleFrequency(signal_index)
-            features[channel] = signal_data
-            sampling_rates[channel] = sampling_rate
+            # Calculate mean for entire signal
+            channel_means[channel] = np.mean(signal_data)
         except ValueError:
             print(f"⚠️ Channel {channel} not found in the EDF file.")
-            features[channel] = None
-            sampling_rates[channel] = None
+            channel_means[channel] = None
 
     edf_file.close()
-    features_df = pd.DataFrame(features)
-    return features_df, sampling_rates
+    return channel_means
 
 def determine_segment_label(event_type):
     """Map event type to standardized labels"""
@@ -87,118 +82,49 @@ def determine_segment_label(event_type):
     else:
         return 'Normal'
 
-def preprocess_and_label(edf_file_path, annotations, sampling_rate=200):
-    """Modified preprocessing that creates segments with channel means"""
+def preprocess_and_label(edf_file_path, annotations):
+    """Create segments with single mean value per channel"""
     
     print(f"\n📊 Processing EDF: {os.path.basename(edf_file_path)}")
     
-    # Load EDF data
-    features_df, sampling_rates = extract_features_from_edf(edf_file_path)
-    edf_duration = len(features_df) / sampling_rate
+    # Load EDF data - now just gets means
+    channel_means = extract_features_from_edf(edf_file_path)
     
-    print(f"EDF duration: {edf_duration:.1f}s")
-    print(f"Channels found: {list(features_df.columns)}")
+    print(f"Channels found: {list(channel_means.keys())}")
     
-    # Separate events by type
-    apnea_events = []
-    normal_events = []
-    
-    for event_type, start_time, duration in annotations:
-        if start_time < edf_duration:
-            if "apnea" in event_type.lower():
-                apnea_events.append((event_type, start_time, duration))
-            else:
-                normal_events.append((event_type, start_time, duration))
-    
+    # Create segments list
     segments = []
-    window_size = 60  # seconds (changed to 60s window)
     
-    # Process apnea events
-    processed_apnea = 0
-    apnea_type_counts = Counter()
-    
-    for event_type, start_time, duration in apnea_events:
-        # Center the 60s window around the event
-        event_center = start_time + (duration / 2)
-        segment_start = max(0, event_center - (window_size / 2))
+    # Process each annotation
+    for event_type, start_time, duration in annotations:
+        segment_data = {}
         
-        if segment_start + window_size > edf_duration:
-            segment_start = edf_duration - window_size
+        # Add channel means
+        for channel, mean_value in channel_means.items():
+            segment_data[channel] = mean_value
         
-        if segment_start >= 0:
-            start_idx = int(segment_start * sampling_rate)
-            end_idx = start_idx + int(window_size * sampling_rate)
-            
-            if end_idx <= len(features_df):
-                segment_data = {}
-                
-                # Calculate mean for each channel
-                for channel in features_df.columns:
-                    channel_data = features_df[channel].iloc[start_idx:end_idx]
-                    segment_data[channel] = channel_data.mean()
-                
-                # Add metadata
-                label = determine_segment_label(event_type)
-                segment_data['Label'] = label
-                segment_data['StartTime'] = segment_start
-                segment_data['OriginalEvent'] = event_type
-                segment_data['EventStart'] = start_time
-                segment_data['EventDuration'] = duration
-                
-                segments.append(segment_data)
-                processed_apnea += 1
-                apnea_type_counts[label] += 1
-    
-    print(f"✅ Created {processed_apnea} apnea segments")
-    
-    # Create balanced normal segments
-    target_normal_count = len(segments)
-    
-    if target_normal_count > 0:
-        print(f"🎯 Creating {target_normal_count} normal segments...")
+        # Add metadata
+        label = determine_segment_label(event_type)
+        segment_data['Label'] = label
+        segment_data['EventType'] = event_type
         
-        # Get occupied periods
-        occupied_periods = []
-        for _, start_time, duration in apnea_events:
-            buffer_start = max(0, start_time - 30)
-            buffer_end = min(edf_duration, start_time + duration + 30)
-            occupied_periods.append((buffer_start, buffer_end))
-        
-        normal_segments_created = 0
-        max_attempts = target_normal_count * 3
-        attempts = 0
-        
-        while normal_segments_created < target_normal_count and attempts < max_attempts:
-            attempts += 1
-            random_start = np.random.uniform(0, max(0, edf_duration - window_size))
-            segment_end = random_start + window_size
-            
-            overlaps = False
-            for occupied_start, occupied_end in occupied_periods:
-                if not (segment_end <= occupied_start or random_start >= occupied_end):
-                    overlaps = True
-                    break
-            
-            if not overlaps:
-                start_idx = int(random_start * sampling_rate)
-                end_idx = start_idx + int(window_size * sampling_rate)
-                
-                if end_idx <= len(features_df):
-                    segment_data = {}
-                    
-                    # Calculate mean for each channel
-                    for channel in features_df.columns:
-                        channel_data = features_df[channel].iloc[start_idx:end_idx]
-                        segment_data[channel] = channel_data.mean()
-                    
-                    segment_data['Label'] = 'Normal'
-                    segment_data['StartTime'] = random_start
-                    segment_data['OriginalEvent'] = 'Normal'
-                    
-                    segments.append(segment_data)
-                    normal_segments_created += 1
+        segments.append(segment_data)
     
     return segments
+
+def save_results(segments, output_file):
+    """Save results as CSV with one row per event"""
+    if not segments:
+        return
+    
+    # Get all column names
+    columns = ['Label', 'EventType'] + [col for col in segments[0].keys() 
+                                      if col not in ['Label', 'EventType']]
+    
+    with open(output_file, 'w', newline='') as f:
+        writer = csv.DictWriter(f, fieldnames=columns)
+        writer.writeheader()
+        writer.writerows(segments)
 
 def process_patient(patient_id, rml_path, edf_files):
     """Process all files for a single patient"""
