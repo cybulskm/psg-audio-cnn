@@ -9,6 +9,7 @@ import pickle
 from collections import Counter
 from scipy import signal
 import statistics
+import random
 
 relevant_channels = ["EEG A1-A2", "EEG C3-A2", "EEG C4-A1", "EOG LOC-A2", "EOG ROC-A2", "EMG Chin", "Leg 1", "Leg 2", "ECG I"]
 
@@ -36,18 +37,32 @@ def parse_annotations(rml_file_path):
         if "apnea" in event_type.lower():
             events.append(("Apnea", start_time, duration))
             apnea_count += 1
+        elif "hypopnea" in event_type.lower():
+            # Include hypopnea as a type of apnea event
+            events.append(("Hypopnea", start_time, duration))
+            apnea_count += 1
         else:
-            # All non-apnea events are normal
+            # Store normal events separately for balancing
             events.append(("Normal", start_time, duration))
             normal_count += 1
     
-    print(f"📊 Event summary:")
-    print(f"  Total events: {len(events)}")
-    print(f"  Apnea events: {apnea_count}")
-    print(f"  Normal events: {normal_count}")
+    # Balance normal events
+    normal_events = [e for e in events if e[0] == "Normal"]
+    apnea_events = [e for e in events if e[0] != "Normal"]
+    
+    # Randomly select normal events to match apnea count
+    if len(normal_events) > len(apnea_events):
+        normal_events = random.sample(normal_events, len(apnea_events))
+    
+    balanced_events = apnea_events + normal_events
+    
+    print(f"📊 Event summary (after balancing):")
+    print(f"  Total events: {len(balanced_events)}")
+    print(f"  Apnea events: {len(apnea_events)}")
+    print(f"  Normal events: {len(normal_events)}")
     print(f"  Event types found: {dict(event_types)}")
     
-    return events
+    return balanced_events
 
 def extract_features_from_edf(edf_file_path):
     """Extract signal data from EDF file"""
