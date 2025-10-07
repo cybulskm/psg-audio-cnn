@@ -245,18 +245,39 @@ def preprocess_and_label(edf_files, annotations):
     return all_segments
 
 def save_results(segments, output_file):
-    """Save results as CSV with one row per event"""
-    if not segments:
-        return
+    """Save simplified results as pickle file with just labels and features"""
+    simplified_segments = []
     
-    # Get all column names
-    columns = ['Label', 'EventType'] + [col for col in segments[0].keys() 
-                                      if col not in ['Label', 'EventType']]
+    for segment in segments:
+        # Only keep relevant channels and their signal data
+        features = {
+            channel: data 
+            for channel, data in segment.items()
+            if channel in relevant_channels and isinstance(data, list)
+        }
+        
+        # Only include segments that have all required channels
+        if len(features) == len(relevant_channels):
+            simple_segment = {
+                'features': features,
+                'label': segment['Label']
+            }
+            simplified_segments.append(simple_segment)
     
-    with open(output_file, 'w', newline='') as f:
-        writer = csv.DictWriter(f, fieldnames=columns)
-        writer.writeheader()
-        writer.writerows(segments)
+    # Save to pickle file
+    with open(output_file, 'wb') as f:
+        pickle.dump(simplified_segments, f)
+    
+    # Print summary
+    print("\n📊 Simplified data structure:")
+    print(f"Total segments: {len(simplified_segments)}")
+    print(f"Features per segment: {len(relevant_channels)} channels")
+    if simplified_segments:
+        print(f"Samples per channel: {len(next(iter(simplified_segments[0]['features'].values())))}")
+        labels = Counter(seg['label'] for seg in simplified_segments)
+        print("\nLabel distribution:")
+        for label, count in labels.items():
+            print(f"  {label}: {count}")
 
 def process_patient(patient_id, rml_path, edf_files):
     """Process all files for a single patient"""
@@ -412,12 +433,8 @@ def main():
         
         # Save to file
         output_file = os.path.join(output_dir, "285_patients_processed_v2.pkl")
-        with open(output_file, 'wb') as f:
-            pickle.dump(all_segments, f)
-        
-        print(f"\n💾 Data saved to: {output_file}")
-        print(f"File size: {os.path.getsize(output_file) / 1e6:.1f} MB")
-        
+        save_results(all_segments, output_file)
+    
     else:
         print("❌ No segments were generated!")
 
