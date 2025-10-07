@@ -9,18 +9,36 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 os.environ['CUDA_VISIBLE_DEVICES'] = '0,1,2,3,4,5,6,7'
 os.environ['TF_FORCE_GPU_ALLOW_GROWTH'] = 'true'
 
+def get_tf_version():
+    """Get TensorFlow version safely"""
+    try:
+        return tf.__version__
+    except:
+        try:
+            return tf.version.VERSION
+        except:
+            return "Unknown"
+
 def check_cuda_compatibility():
     """Check CUDA and TensorFlow version compatibility"""
     print("\n🔍 Version Compatibility Check:")
     print("-" * 50)
     
     # Get TensorFlow version and build info
-    print(f"TensorFlow {tf.__version__}")
+    tf_version = get_tf_version()
+    print(f"TensorFlow: {tf_version}")
     
     # Check if CUDA is available
     print("\nCUDA Support:")
-    print(f"Built with CUDA: {tf.test.is_built_with_cuda()}")
-    print(f"GPU devices visible: {len(tf.config.list_physical_devices('GPU'))}")
+    try:
+        print(f"Built with CUDA: {tf.test.is_built_with_cuda()}")
+    except:
+        print("Built with CUDA: Unknown")
+    
+    try:
+        print(f"GPU devices visible: {len(tf.config.list_physical_devices('GPU'))}")
+    except:
+        print("GPU devices visible: Error checking")
     
     # Get installed CUDA version
     try:
