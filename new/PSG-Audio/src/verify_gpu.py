@@ -2,7 +2,21 @@ import os
 import sys
 import platform
 import subprocess
-import tensorflow as tf
+import importlib
+
+def import_tensorflow():
+    """Import TensorFlow and handle potential import errors"""
+    try:
+        import tensorflow as tf
+        return tf
+    except ImportError as e:
+        print(f"❌ Error importing TensorFlow: {e}")
+        print("Please ensure TensorFlow is installed:")
+        print("pip install --user -U tf-nightly")
+        sys.exit(1)
+
+# Import TensorFlow
+tf = import_tensorflow()
 
 # Set environment variables for CUDA
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
@@ -12,10 +26,14 @@ os.environ['TF_FORCE_GPU_ALLOW_GROWTH'] = 'true'
 def get_tf_version():
     """Get TensorFlow version safely"""
     try:
+        if hasattr(tf, 'version'):
+            return tf.version.VERSION
         return tf.__version__
     except:
+        # Try to get version from pip
         try:
-            return tf.version.VERSION
+            import pkg_resources
+            return pkg_resources.get_distribution('tf-nightly').version
         except:
             return "Unknown"
 
