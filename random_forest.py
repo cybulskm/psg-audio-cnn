@@ -60,7 +60,34 @@ def extract_advanced_features(channel_data):
     
     return features
 
-def load_data_with_advanced_features(data_path, channels, max_segments=None, batch_size=500):
+def get_channels_from_pickle(data_path):
+    """Extract channel names from pickle file"""
+    print("Extracting channels from pickle file...")
+    
+    with open(data_path, "rb") as f:
+        data = pickle.load(f)
+    
+    if not isinstance(data, list) or len(data) == 0:
+        raise ValueError("Expected non-empty list of segments")
+    
+    # Get first valid segment
+    first_segment = None
+    for seg in data:
+        if isinstance(seg, dict) and 'Label' in seg:
+            first_segment = seg
+            break
+    
+    if first_segment is None:
+        raise ValueError("No valid segments found with Label")
+    
+    # Extract all keys except 'Label'
+    channels = [key for key in first_segment.keys() if key != 'Label']
+    
+    print(f"Found {len(channels)} channels: {channels}")
+    
+    return channels
+
+def load_data_with_advanced_features(data_path, channels=None, max_segments=None, batch_size=500):
     """Load data with advanced feature extraction"""
     print("Loading data with advanced feature extraction...")
     log_memory_usage()
@@ -74,8 +101,13 @@ def load_data_with_advanced_features(data_path, channels, max_segments=None, bat
     if not isinstance(data, list):
         raise ValueError("Expected list of segments")
     
+    # Auto-detect channels if not provided
+    if channels is None:
+        channels = get_channels_from_pickle(data_path)
+    
     total_segments = len(data)
     print(f"Total segments in file: {total_segments}")
+    print(f"Using channels: {channels}")
     
     if max_segments and total_segments > max_segments:
         print(f"Using first {max_segments} segments for memory management")
@@ -148,7 +180,7 @@ def load_data_with_advanced_features(data_path, channels, max_segments=None, bat
     print(f"Final data shape: {X.shape} ({len(channels)} channels × 12 features = {X.shape[1]} total features)")
     print(f"Memory usage: {X.nbytes / 1e6:.1f} MB")
     
-    return X, y
+    return X, y, channels
 
 def balance_classes_advanced(X, y, strategy='hybrid'):
     """Advanced class balancing with multiple strategies"""
@@ -497,9 +529,7 @@ def train_improved_random_forest():
     print("="*80)
     
     # Configuration
-    data_path = os.path.join("/raid/userdata/cybulskm/ThesisProj/", "processed.pkl")
-    channels = ["EEG A1-A2", "EEG C3-A2", "EEG C4-A1", "EOG LOC-A2", "EOG ROC-A2", 
-                "EMG Chin", "Leg 1", "Leg 2", "ECG I"]
+    data_path = "/raid/userdata/cybulskm/ThesisProj/285_patients_processed_means.pkl"
     max_segments = 15000
     
     try:
@@ -507,8 +537,8 @@ def train_improved_random_forest():
         diagnose_pickle_data(data_path)
         print("\n" + "="*50 + "\n")
         
-        # Load data with advanced features
-        X, y = load_data_with_advanced_features(data_path, channels, max_segments=max_segments)
+        # Load data with advanced features (channels auto-detected)
+        X, y, channels = load_data_with_advanced_features(data_path, channels=None, max_segments=max_segments)
         
         # Clean data
         print("Cleaning data...")
@@ -609,6 +639,7 @@ def train_improved_random_forest():
             f.write(f"Total runtime: {datetime.now() - start_time}\n")
             f.write(f"Training time: {training_time}\n")
             f.write(f"Dataset size: {len(X)} segments\n")
+            f.write(f"Channels: {channels}\n")
             f.write(f"Features: {X.shape[1]} advanced features ({len(channels)} channels × 12 features)\n")
             f.write(f"Max segments used: {max_segments}\n\n")
             
@@ -637,6 +668,7 @@ def train_improved_random_forest():
         
         # Expected improvements summary
         print(f"\n🎯 Expected Improvements vs Original:")
+        print(f"• Channels auto-detected from pickle file: {len(channels)} channels")
         print(f"• More features: 9 → {X.shape[1]} features")
         print(f"• Better class balance through hybrid resampling")
         print(f"• Optimized hyperparameters via grid search")

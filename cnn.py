@@ -24,10 +24,9 @@ warnings.filterwarnings('ignore')
 
 # Configuration
 CONFIG = {
-    'data_path': os.path.join("/raid/userdata/cybulskm/ThesisProj/", "100_patients_processed.pkl"),  # Use 100-patient dataset
+    'data_path': "/raid/userdata/cybulskm/ThesisProj/285_patients_processed_means.pkl",  # Updated to 285 patients
     'output_file': "cnn_results_no_mixed.txt",
-    'channels': ["EEG A1-A2", "EEG C3-A2", "EEG C4-A1", "EOG LOC-A2", "EOG ROC-A2", 
-                 "EMG Chin", "Leg 1", "Leg 2", "ECG I"],
+    'channels': None,  # Will be auto-detected from pickle file
     'max_segments': None,  # Use all available data
     'test_size': 0.25,
     'random_state': 42,
@@ -54,7 +53,34 @@ def setup_cpu():
     log_message(f"Available devices: {[d.device_type for d in tf.config.get_visible_devices()]}")
     log_message("=" * 70)
 
-def load_data_efficiently(data_path, channels, max_segments=None, exclude_classes=None):
+def get_channels_from_pickle(data_path):
+    """Extract channel names from pickle file (all keys except 'Label')"""
+    log_message("Auto-detecting channels from pickle file...")
+    
+    with open(data_path, "rb") as f:
+        data = pickle.load(f)
+    
+    if not isinstance(data, list) or len(data) == 0:
+        raise ValueError("Expected non-empty list of segments")
+    
+    # Get first valid segment
+    first_segment = None
+    for seg in data:
+        if isinstance(seg, dict) and 'Label' in seg:
+            first_segment = seg
+            break
+    
+    if first_segment is None:
+        raise ValueError("No valid segments found with Label")
+    
+    # Extract all keys except 'Label'
+    channels = [key for key in first_segment.keys() if key != 'Label']
+    
+    log_message(f"Auto-detected {len(channels)} channels: {channels}")
+    
+    return channels
+
+def load_data_efficiently(data_path, channels=None, max_segments=None, exclude_classes=None):
     """Load data with memory management and class filtering"""
     log_message(f"Loading data from: {data_path}")
     log_message(f"Excluding classes: {exclude_classes}")
@@ -70,6 +96,12 @@ def load_data_efficiently(data_path, channels, max_segments=None, exclude_classe
         raise ValueError("Expected list of segments in pickle file")
     
     log_message(f"Loaded {len(data)} segments from pickle file")
+    
+    # Auto-detect channels if not provided
+    if channels is None:
+        channels = get_channels_from_pickle(data_path)
+    
+    log_message(f"Using channels: {channels}")
     
     # Process segments and filter out excluded classes
     X_list = []
@@ -151,9 +183,9 @@ def load_data_efficiently(data_path, channels, max_segments=None, exclude_classe
         percentage = (count / len(y)) * 100
         log_message(f"  {label}: {count} ({percentage:.1f}%)")
     
-    return X, y
+    return X, y, channels
 
-def preprocess_data(X, y):
+def preprocess_data(X, y, channels):
     """Preprocess data for CNN training"""
     log_message("Preprocessing data for CNN...")
     
@@ -177,7 +209,7 @@ def preprocess_data(X, y):
         std = np.std(channel_data)
         if std > 0:
             X_std[:, :, i] = (channel_data - mean) / std
-        log_message(f"  Channel {i} ({CONFIG['channels'][i]}): mean={mean:.3f}, std={std:.3f}")
+        log_message(f"  Channel {i} ({channels[i]}): mean={mean:.3f}, std={std:.3f}")
     
     # Check for class imbalance
     unique_encoded, counts = np.unique(y_encoded, return_counts=True)
@@ -374,19 +406,21 @@ def train_and_evaluate_cnn():
         log_message("🚀 STARTING 3-CLASS CNN TRAINING (NO MIXED APNEA)", log_file)
         log_message("=" * 70, log_file)
         
-        # Load data with MixedApnea exclusion
-        X, y = load_data_efficiently(
+        # Load data with MixedApnea exclusion (channels auto-detected)
+        X, y, channels = load_data_efficiently(
             CONFIG['data_path'], 
             CONFIG['channels'], 
             CONFIG['max_segments'],
             CONFIG['exclude_classes']
         )
         
+        log_message(f"Detected {len(channels)} channels from pickle file", log_file)
+        
         # Strategic balancing for 3-class problem
         X, y = balance_classes_strategic(X, y)
         
         # Preprocess
-        X_processed, y_processed, label_names, class_weights = preprocess_data(X, y)
+        X_processed, y_processed, label_names, class_weights = preprocess_data(X, y, channels)
         
         log_message(f"Final processed data shape: {X_processed.shape}", log_file)
         log_message(f"Number of classes: {y_processed.shape[1]}", log_file)
@@ -505,7 +539,8 @@ def train_and_evaluate_cnn():
         log_message("\n" + "=" * 70, log_file)
         log_message("🎯 FINAL 3-CLASS RESULTS SUMMARY", log_file)
         log_message("=" * 70, log_file)
-        log_message(f"Dataset: {len(X)} segments, {len(CONFIG['channels'])} channels", log_file)
+        log_message(f"Dataset: {len(X)} segments, {len(channels)} channels", log_file)
+        log_message(f"Channels: {', '.join(channels)}", log_file)
         log_message(f"Classes: {', '.join(label_names)} (MixedApnea excluded)", log_file)
         log_message(f"Test Accuracy: {test_acc:.4f}", log_file)
         log_message(f"Best Validation Accuracy: {best_val_acc:.4f}", log_file)
