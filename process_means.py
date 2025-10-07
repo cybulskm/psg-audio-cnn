@@ -92,83 +92,109 @@ def get_edf_duration(edf_file_path):
     edf_file.close()
     return duration
 
+def process_edf_file(edf_file_path, file_events, file_start_time):
+    """Process all events for a single EDF file at once"""
+    segments = []
+    
+    try:
+        with pyedflib.EdfReader(edf_file_path) as edf_file:
+            duration = edf_file.getFileDuration()
+            signal_labels = edf_file.getSignalLabels()
+            
+            # Load all signals at once
+            signals = {}
+            sampling_rates = {}
+            for channel in signal_labels:
+                try:
+                    signal_index = signal_labels.index(channel)
+                    signals[channel] = edf_file.readSignal(signal_index)
+                    sampling_rates[channel] = edf_file.getSampleFrequency(signal_index)
+                except ValueError:
+                    print(f"⚠️ Channel {channel} not found")
+                    signals[channel] = None
+                    sampling_rates[channel] = None
+            
+            # Process all events for this file
+            for event_type, start_time, event_duration in file_events:
+                segment_data = {}
+                local_start = start_time - file_start_time
+                local_end = local_start + event_duration
+                
+                if 0 <= local_start < duration:
+                    for channel, signal in signals.items():
+                        if signal is not None and sampling_rates[channel]:
+                            start_sample = int(local_start * sampling_rates[channel])
+                            end_sample = int(local_end * sampling_rates[channel])
+                            
+                            if start_sample < end_sample and end_sample <= len(signal):
+                                try:
+                                    window_mean = np.mean(signal[start_sample:end_sample])
+                                    if not np.isnan(window_mean):
+                                        segment_data[channel] = window_mean
+                                except Exception as e:
+                                    print(f"⚠️ Error with {channel}: {e}")
+                    
+                    if segment_data:
+                        segment_data.update({
+                            'Label': determine_segment_label(event_type),
+                            'EventType': event_type,
+                            'Duration': event_duration,
+                            'StartTime': start_time,
+                            'FileStart': file_start_time
+                        })
+                        segments.append(segment_data)
+            
+            # Explicitly delete large objects
+            del signals
+            
+    except Exception as e:
+        print(f"❌ Error processing {os.path.basename(edf_file_path)}: {e}")
+    
+    return segments
+
 def preprocess_and_label(edf_files, annotations):
     """Process events across multiple EDF files"""
     print("\n📊 Processing EDF files...")
     
-    # Calculate cumulative durations
+    # Map events to files
     file_durations = []
     cumulative_duration = 0
+    file_events = {}
     
+    # Calculate file durations first
     for edf_file in sorted(edf_files):
         duration = get_edf_duration(edf_file)
-        file_durations.append({
+        file_info = {
             'file': edf_file,
             'start': cumulative_duration,
             'end': cumulative_duration + duration,
             'duration': duration
-        })
+        }
+        file_durations.append(file_info)
+        file_events[edf_file] = []
         cumulative_duration += duration
     
-    print(f"📈 Total recording duration: {cumulative_duration:.1f}s")
-    
-    segments = []
-    
-    # Process each annotation
-    for event_type, start_time, duration in annotations:
+    # Map events to files
+    for event in annotations:
+        event_type, start_time, duration = event
         event_end = start_time + duration
         
-        # Find which file(s) contain this event
         for file_info in file_durations:
-            # Check if event overlaps with this file
             if not (event_end <= file_info['start'] or start_time >= file_info['end']):
-                # Load EDF data
-                signals, sampling_rates = extract_features_from_edf(file_info['file'])
-                
-                segment_data = {}
-                
-                # Calculate mean for each channel during the event window
-                for channel, signal in signals.items():
-                    if signal is not None and sampling_rates[channel]:
-                        # Adjust start and end times relative to this file
-                        local_start = max(0, start_time - file_info['start'])
-                        local_end = min(file_info['duration'], event_end - file_info['start'])
-                        
-                        # Convert time to samples
-                        start_sample = int(local_start * sampling_rates[channel])
-                        end_sample = int(local_end * sampling_rates[channel])
-                        
-                        # Add safety checks
-                        if start_sample < end_sample and end_sample <= len(signal):
-                            try:
-                                window_mean = np.mean(signal[start_sample:end_sample])
-                                if not np.isnan(window_mean):
-                                    segment_data[channel] = window_mean
-                                else:
-                                    segment_data[channel] = None
-                            except Exception as e:
-                                print(f"⚠️ Error calculating mean for {channel}: {e}")
-                                print(f"  Start: {start_sample}, End: {end_sample}, Len: {len(signal)}")
-                                segment_data[channel] = None
-                        else:
-                            segment_data[channel] = None
-                    else:
-                        segment_data[channel] = None
-                
-                # Only add segment if we have valid data
-                if any(v is not None for v in segment_data.values()):
-                    # Add metadata
-                    label = determine_segment_label(event_type)
-                    segment_data['Label'] = label
-                    segment_data['EventType'] = event_type
-                    segment_data['Duration'] = duration
-                    segment_data['StartTime'] = start_time
-                    segment_data['FileStart'] = file_info['start']
-                    
-                    segments.append(segment_data)
-                    break  # Use first file that contains valid data
+                file_events[file_info['file']].append(event)
     
-    return segments
+    # Process each file once
+    all_segments = []
+    for file_info in file_durations:
+        if file_events[file_info['file']]:
+            segments = process_edf_file(
+                file_info['file'],
+                file_events[file_info['file']],
+                file_info['start']
+            )
+            all_segments.extend(segments)
+    
+    return all_segments
 
 def save_results(segments, output_file):
     """Save results as CSV with one row per event"""
