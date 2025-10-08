@@ -529,7 +529,7 @@ def train_improved_random_forest():
     print("="*80)
     
     # Configuration
-    data_path = "/raid/userdata/cybulskm/ThesisProj/285_patients_processed_means.pkl"
+    data_path = "/raid/userdata/cybulskm/ThesisProj/285_patients_processed_v2.pkl"
     max_segments = 15000
     
     try:
