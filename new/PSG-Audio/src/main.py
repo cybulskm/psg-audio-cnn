@@ -80,7 +80,7 @@ def get_channel_importance_ranking(feature_importance, channels):
     print(f"\n🎯 CHANNEL IMPORTANCE RANKING:")
     print("-" * 50)
     for i, (channel, importance) in enumerate(sorted_channels, 1):
-        print(f"{i:2d}. {channel:<15s}: {importance:.6f}")
+        print(f"{i:2d}. {channel:<20s}: {importance:.6f}")
     
     return sorted_channels
 
@@ -88,14 +88,17 @@ def create_channel_groups(sorted_channels):
     """Create channel groups based on importance"""
     total_channels = len(sorted_channels)
     
-    # Define group sizes based on 9 channels
+    # Define group sizes based on available channels
+    num_channels = len(sorted_channels)
+    third = num_channels // 3
+    
     groups = {
-        'tier_1_top3': sorted_channels[:3],      # Top 3 channels (33%)
-        'tier_2_mid3': sorted_channels[3:6],     # Middle 3 channels (33%)  
-        'tier_3_bottom3': sorted_channels[6:9],  # Bottom 3 channels (33%)
-        'top_5_channels': sorted_channels[:5],   # Top 5 channels (56%)
-        'top_7_channels': sorted_channels[:7],   # Top 7 channels (78%)
-        'all_9_channels': sorted_channels[:9]    # All 9 channels (100%)
+        'tier_1_top3': sorted_channels[:min(3, num_channels)],
+        'tier_2_mid3': sorted_channels[third:third+min(3, num_channels-third)],
+        'tier_3_bottom3': sorted_channels[-min(3, num_channels):],
+        'top_5_channels': sorted_channels[:min(5, num_channels)],
+        'top_7_channels': sorted_channels[:min(7, num_channels)],
+        'all_channels': sorted_channels[:num_channels]
     }
     
     print(f"\n📊 CHANNEL GROUPING STRATEGY:")
@@ -118,15 +121,26 @@ def main():
     print("🔬 285-PATIENT DATASET")
     print("=" * 80)
 
-    # STEP 1: Load Data
+    # STEP 1: Load Data with auto-detection
     print("\n📂 STEP 1: DATA LOADING")
     print("-" * 50)
     
     step_start = time.time()
-    X, y = load_data_streaming(CONFIG['data_path'], CONFIG['channels'], CONFIG['max_segments'])
+    
+    # Load data with channel auto-detection
+    X, y, channels = load_data_streaming(
+        CONFIG['data_path'], 
+        channels=None,  # Auto-detect from pickle file
+        max_segments=CONFIG.get('max_segments'),
+        exclude_classes=['MixedApnea']  # Exclude for 3-class problem
+    )
+    
+    # Update CONFIG with detected channels
+    CONFIG['channels'] = channels
     
     labels, y_encoded = np.unique(y, return_inverse=True)
     print(f"✅ Data loaded: {X.shape}, Labels: {labels}")
+    print(f"✅ Channels detected: {channels}")
     
     imbalance_ratio = validate_data_quality(X, y_encoded)
     step_time = time.time() - step_start
@@ -139,7 +153,7 @@ def main():
     print("-" * 50)
     
     step_start = time.time()
-    feature_importance = get_feature_importance(X, y_cat, CONFIG['channels'])
+    feature_importance = get_feature_importance(X, y_cat, channels)
     step_time = time.time() - step_start
     print(f"✅ Random Forest completed in {step_time:.1f}s")
 
@@ -148,7 +162,7 @@ def main():
     print("-" * 50)
     
     # Get channel importance ranking
-    sorted_channels = get_channel_importance_ranking(feature_importance, CONFIG['channels'])
+    sorted_channels = get_channel_importance_ranking(feature_importance, channels)
     
     # Create channel groups
     channel_groups = create_channel_groups(sorted_channels)
@@ -161,7 +175,7 @@ def main():
     
     for group_name, channel_list in channel_groups.items():
         channels_only = [ch for ch, _ in channel_list]
-        X_subset, y_subset = prepare_channel_data_for_cnn(X, y_cat, channels_only, CONFIG['channels'])
+        X_subset, y_subset = prepare_channel_data_for_cnn(X, y_cat, channels_only, channels)
         
         datasets[group_name] = {
             'X': X_subset,
@@ -177,9 +191,12 @@ def main():
     print("-" * 50)
     
     results = {}
-    training_order = ['tier_1_top3', 'top_5_channels', 'top_7_channels', 'all_9_channels', 'tier_2_mid3', 'tier_3_bottom3']
+    training_order = ['tier_1_top3', 'top_5_channels', 'top_7_channels', 'all_channels', 'tier_2_mid3', 'tier_3_bottom3']
     
     for i, group_name in enumerate(training_order, 1):
+        if group_name not in datasets:
+            continue
+            
         dataset = datasets[group_name]
         
         print(f"\n{'='*15} CNN {i}/6: {group_name.upper()} {'='*15}")
@@ -218,9 +235,12 @@ def main():
     print(f"{'Group':<15} {'Channels':<10} {'Accuracy':<12} {'Importance':<12} {'Time':<10} {'Efficiency':<12}")
     print("-" * 90)
     
-    baseline_acc = results['all_9_channels']['accuracy']
+    baseline_acc = results.get('all_channels', {}).get('accuracy', 0)
     
     for group_name in training_order:
+        if group_name not in results:
+            continue
+            
         result = results[group_name]
         efficiency = result['accuracy'] / result['n_channels']  # Accuracy per channel
         
@@ -229,29 +249,27 @@ def main():
               f"{result['training_time']:.1f}s     {efficiency:.4f}")
     
     # Find best performing configurations
-    best_overall = max(results.keys(), key=lambda k: results[k]['accuracy'])
-    best_efficiency = max(results.keys(), key=lambda k: results[k]['accuracy'] / results[k]['n_channels'])
-    
-    print(f"\n🏆 BEST RESULTS:")
-    print(f"   Highest Accuracy: {best_overall} ({results[best_overall]['accuracy']:.4f})")
-    print(f"   Best Efficiency:  {best_efficiency} ({results[best_efficiency]['accuracy'] / results[best_efficiency]['n_channels']:.4f} acc/channel)")
-    
-    # Channel tier analysis
-    print(f"\n📈 CHANNEL TIER ANALYSIS:")
-    print("-" * 50)
-    tier_results = {
-        'tier_1_top3': results['tier_1_top3'],
-        'tier_2_mid3': results['tier_2_mid3'], 
-        'tier_3_bottom3': results['tier_3_bottom3']
-    }
-    
-    for tier_name, result in tier_results.items():
-        improvement = result['accuracy'] - baseline_acc
-        print(f"{tier_name:15s}: {result['accuracy']:.4f} ({improvement:+.4f} vs full)")
-        print(f"                 Channels: {result['channels']}")
-    
-    # Save results
-    save_channel_analysis_results(results, sorted_channels, total_time)
+    if results:
+        best_overall = max(results.keys(), key=lambda k: results[k]['accuracy'])
+        best_efficiency = max(results.keys(), key=lambda k: results[k]['accuracy'] / results[k]['n_channels'])
+        
+        print(f"\n🏆 BEST RESULTS:")
+        print(f"   Highest Accuracy: {best_overall} ({results[best_overall]['accuracy']:.4f})")
+        print(f"   Best Efficiency:  {best_efficiency} ({results[best_efficiency]['accuracy'] / results[best_efficiency]['n_channels']:.4f} acc/channel)")
+        
+        # Channel tier analysis
+        print(f"\n📈 CHANNEL TIER ANALYSIS:")
+        print("-" * 50)
+        
+        tier_results = {k: v for k, v in results.items() if k.startswith('tier_')}
+        
+        for tier_name, result in tier_results.items():
+            improvement = result['accuracy'] - baseline_acc
+            print(f"{tier_name:15s}: {result['accuracy']:.4f} ({improvement:+.4f} vs full)")
+            print(f"                 Channels: {result['channels']}")
+        
+        # Save results
+        save_channel_analysis_results(results, sorted_channels, total_time, channels)
     
     print(f"\n✅ CHANNEL ANALYSIS COMPLETED!")
     print(f"Total time: {total_time:.1f}s ({total_time/60:.1f} minutes)")
@@ -270,19 +288,23 @@ def prepare_channel_data_for_cnn(X, y, selected_channels, all_channels):
     
     return X_subset, y
 
-def save_channel_analysis_results(results, sorted_channels, total_time):
+def save_channel_analysis_results(results, sorted_channels, total_time, channels):
     """Save channel analysis results"""
     import json
     from datetime import datetime
     
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     
+    # Create results directory if it doesn't exist
+    os.makedirs(CONFIG.get('output_dir', 'results'), exist_ok=True)
+    
     # Create results structure
     analysis_results = {
         'experiment_info': {
             'timestamp': timestamp,
             'dataset': '285_patients_channel_analysis',
-            'total_time': total_time
+            'total_time': total_time,
+            'channels_detected': channels
         },
         'channel_ranking': [
             {'rank': i+1, 'channel': ch, 'importance': float(imp)}
@@ -303,7 +325,7 @@ def save_channel_analysis_results(results, sorted_channels, total_time):
         }
     
     # Save results
-    results_file = os.path.join(CONFIG['output_dir'], f'channel_analysis_{timestamp}.json')
+    results_file = os.path.join(CONFIG.get('output_dir', 'results'), f'channel_analysis_{timestamp}.json')
     with open(results_file, 'w') as f:
         json.dump(analysis_results, f, indent=2)
     
