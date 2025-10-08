@@ -30,15 +30,15 @@ def get_channels_from_pickle(data_path):
     # Get first valid segment
     first_segment = None
     for seg in data:
-        if isinstance(seg, dict) and 'Label' in seg:
+        if isinstance(seg, dict) and 'features' in seg and 'label' in seg:
             first_segment = seg
             break
     
     if first_segment is None:
-        raise ValueError("No valid segments found with Label")
+        raise ValueError("No valid segments found with 'features' and 'label' keys")
     
-    # Extract all keys except 'Label'
-    channels = [key for key in first_segment.keys() if key != 'Label']
+    # Extract channel names from features dictionary
+    channels = list(first_segment['features'].keys())
     
     print(f"Auto-detected {len(channels)} channels: {channels}")
     
@@ -88,8 +88,14 @@ def load_pickle_data(data_path, channels=None, max_segments=None, exclude_classe
             invalid_count += 1
             continue
         
+        # Check for required keys
+        if 'features' not in seg or 'label' not in seg:
+            invalid_count += 1
+            continue
+        
+        label = seg['label']
+        
         # Check if segment should be excluded
-        label = seg.get('Label', 'Unknown')
         if exclude_classes and label in exclude_classes:
             excluded_count += 1
             continue
@@ -97,13 +103,13 @@ def load_pickle_data(data_path, channels=None, max_segments=None, exclude_classe
         # Count labels
         label_counts[label] = label_counts.get(label, 0) + 1
         
-        # Extract channel data
+        # Extract channel data from features dictionary
         channel_data = []
         valid_segment = True
         
         for ch in channels:
-            if ch in seg and seg[ch] is not None:
-                ch_data = np.array(seg[ch], dtype=np.float32)
+            if ch in seg['features'] and seg['features'][ch] is not None:
+                ch_data = np.array(seg['features'][ch], dtype=np.float32)
                 
                 # Handle NaN values
                 if np.any(np.isnan(ch_data)):
