@@ -274,8 +274,7 @@ def main():
     X, y, channels = load_data_streaming(
         CONFIG['data_path'], 
         channels=None,  # Auto-detect
-        max_segments=CONFIG.get('max_segments'),
-        exclude_classes=['MixedApnea']
+        max_segments=CONFIG.get('max_segments') 
     )
     
     labels, y_encoded = np.unique(y, return_inverse=True)

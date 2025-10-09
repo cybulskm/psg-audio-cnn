@@ -124,7 +124,6 @@ def load_data_streaming(data_path, channels, max_segments=None):
     print(f"🚀 OPTIMIZED DATA LOADING (1TB RAM System)")
     print(f"Data path: {data_path}")
     print(f"Max segments: {max_segments}")
-    print(f"Exclude classes: {exclude_classes}")
     print(f"Load full dataset in memory: {CONFIG['data_loading']['load_full_in_memory']}")
     print(f"Cache enabled: {CONFIG['data_loading'].get('cache_dataset', True)}")
     
