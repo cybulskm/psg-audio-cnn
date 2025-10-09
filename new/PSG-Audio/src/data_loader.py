@@ -65,23 +65,113 @@ def filter_classes(X, y, exclude_classes):
     
     return X_filtered, y_filtered
 
-def load_data_streaming(data_path, channels=None, max_segments=None, exclude_classes=None):
-    """Optimized data loader for 1TB RAM system with new pickle structure"""
+def get_cache_path(data_path, channels, max_segments):
+    """Generate cache file path based on data configuration"""
+    # Use existing preprocessed cache file directly
+    existing_cache = "/mnt/c/Users/Ayman/Downloads/cache/285_patients_processed_ch-8238238516549525776_full_cached.npz"
+    
+    # Check if the existing cache exists
+    if os.path.exists(existing_cache):
+        return existing_cache
+    
+    # Fallback: Create cache directory in the src folder (local to project)
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    cache_dir = os.path.join(current_dir, 'data_cache')
+    os.makedirs(cache_dir, exist_ok=True)
+    
+    # Create unique cache name based on parameters
+    data_filename = os.path.basename(data_path).replace('.pkl', '')
+    channels_hash = abs(hash(tuple(sorted(channels))))  # Use abs() for consistent naming
+    max_seg_str = f"_{max_segments}" if max_segments else "_full"
+    cache_filename = f"{data_filename}_ch{channels_hash}{max_seg_str}_cached.npz"
+    
+    return os.path.join(cache_dir, cache_filename)
+
+def save_cached_data(cache_path, X, y):
+    """Save processed data to cache"""
+    print(f"💾 Saving processed data to cache: {cache_path}")
+    try:
+        np.savez_compressed(cache_path, X=X, y=y)
+        cache_size = os.path.getsize(cache_path) / (1024**3)
+        print(f"✅ Cache saved successfully ({cache_size:.2f} GB)")
+        return True
+    except Exception as e:
+        print(f"⚠️  Failed to save cache: {e}")
+        return False
+
+def load_cached_data(cache_path):
+    """Load processed data from cache"""
+    print(f"📂 Loading cached data from: {cache_path}")
+    try:
+        cache_size = os.path.getsize(cache_path) / (1024**3)
+        print(f"   Cache file size: {cache_size:.2f} GB")
+        
+        data = np.load(cache_path)
+        X = data['X']
+        y = data['y']
+        
+        print(f"✅ Cache loaded successfully!")
+        print(f"   Shape: {X.shape}")
+        print(f"   Memory: {X.nbytes / 1e9:.1f} GB")
+        
+        return X, y
+    except Exception as e:
+        print(f"⚠️  Failed to load cache: {e}")
+        return None, None
+
+def load_data_streaming(data_path, channels, max_segments=None):
+    """Optimized data loader for 1TB RAM system with caching support"""
     print(f"🚀 OPTIMIZED DATA LOADING (1TB RAM System)")
     print(f"Data path: {data_path}")
     print(f"Max segments: {max_segments}")
     print(f"Exclude classes: {exclude_classes}")
     print(f"Load full dataset in memory: {CONFIG['data_loading']['load_full_in_memory']}")
+    print(f"Cache enabled: {CONFIG['data_loading'].get('cache_dataset', True)}")
     
     monitor_memory_usage()
     
     if not os.path.exists(data_path):
         raise FileNotFoundError(f"Data file not found: {data_path}")
     
-    # Load segments - optimized for large RAM
+    # Check for cached data
+    cache_enabled = CONFIG['data_loading'].get('cache_dataset', True)
+    if cache_enabled:
+        cache_path = get_cache_path(data_path, channels, max_segments)
+        print(f"\n🔍 Checking for cached data...")
+        
+        if os.path.exists(cache_path):
+            # Check if cache is newer than source file
+            cache_mtime = os.path.getmtime(cache_path)
+            source_mtime = os.path.getmtime(data_path)
+            
+            if cache_mtime > source_mtime:
+                print("✅ Found valid cache file!")
+                X, y = load_cached_data(cache_path)
+                if X is not None and y is not None:
+                    monitor_memory_usage()
+                    return X, y
+                else:
+                    print("⚠️  Cache loading failed, will reload from source")
+            else:
+                print("⚠️  Cache is older than source file, will reload from source")
+        else:
+            print("📝 No cache found, will create one after loading")
+    else:
+        print("📝 Cache disabled in config")
+    
+    # Check file size
+    file_size = os.path.getsize(data_path) / (1024**3)  # Convert to GB
+    print(f"File size: {file_size:.2f} GB")
+    
+    # Load segments - optimized for large RAM with error handling
     print("Loading data file...")
-    with open(data_path, "rb") as f:
-        data = pickle.load(f)
+    try:
+        with open(data_path, "rb") as f:
+            data = pickle.load(f)
+    except EOFError as e:
+        raise ValueError(f"Pickle file is corrupted or incomplete. The file may have been truncated during creation or transfer. Error: {e}")
+    except Exception as e:
+        raise ValueError(f"Error loading pickle file: {e}. The file may be corrupted.")
     
     if not isinstance(data, list):
         raise ValueError("Expected list format")
@@ -218,7 +308,12 @@ def load_data_streaming(data_path, channels=None, max_segments=None, exclude_cla
         percentage = (count / len(y)) * 100
         print(f"  {label}: {count:,} ({percentage:.1f}%)")
     
-    return X, y, channels
+    # Save to cache if enabled
+    if cache_enabled:
+        print(f"\n💾 Creating cache for future runs...")
+        save_cached_data(cache_path, X, y)
+    
+    return X, y
 
 def preprocess_data(X):
     """Optimized standardization for large datasets"""
