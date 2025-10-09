@@ -1,5 +1,7 @@
 import os
 import sys
+import time
+import psutil
 import numpy as np
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report, confusion_matrix
@@ -8,7 +10,7 @@ from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Conv1D, MaxPooling1D, Dense, Dropout
 from tensorflow.keras.layers import BatchNormalization, GlobalAveragePooling1D
 from tensorflow.keras.optimizers import Adam
-from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau
+from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau, ModelCheckpoint, TensorBoard
 from tensorflow.keras.regularizers import l2
 
 # Add parent directory to path for config import
@@ -140,7 +142,36 @@ def preprocess_data_for_cnn(X, y):
               f"range=[{channel_data.min():.3f}, {channel_data.max():.3f}]")
     
     # Advanced class imbalance handling
-    y_labels = np.argmax(y, axis=1)
+    # Handle string labels, numeric labels, and one-hot encoded
+    if y.ndim == 1:
+        # Check if labels are strings
+        if isinstance(y[0], (str, np.str_)):
+            # Convert string labels to numeric
+            print(f"Converting string labels to numeric indices...")
+            label_map = {
+                'CentralApnea': 0,
+                'Normal': 1,
+                'ObstructiveApnea': 2
+            }
+            y_labels = np.array([label_map.get(str(label), -1) for label in y])
+            
+            # Show conversion
+            unique_str_labels = np.unique(y)
+            print(f"  Label mapping: {dict((str(k), v) for k, v in label_map.items() if str(k) in unique_str_labels)}")
+        else:
+            # Already numeric label indices
+            y_labels = y
+        
+        # Need to one-hot encode for CNN
+        from tensorflow.keras.utils import to_categorical
+        y_processed = to_categorical(y_labels)
+        print(f"Converting labels to one-hot encoding: {y.shape} -> {y_processed.shape}")
+    elif y.ndim == 2:
+        # Already one-hot encoded
+        y_labels = np.argmax(y, axis=1)
+        y_processed = y
+    else:
+        raise ValueError(f"Unexpected y shape: {y.shape}")
     unique_labels, counts = np.unique(y_labels, return_counts=True)
     imbalance_ratio = max(counts) / min(counts)
     
@@ -168,7 +199,7 @@ def preprocess_data_for_cnn(X, y):
         class_weights = class_weight_dict
     
     monitor_memory_usage()
-    return X_std, y, class_weights
+    return X_std, y_processed, class_weights
 
 def setup_advanced_callbacks(feature_description=""):
     """Setup advanced callbacks for training monitoring"""
@@ -228,7 +259,15 @@ def setup_advanced_callbacks(feature_description=""):
 def train_and_evaluate_cnn(X, y, feature_description=""):
     """Advanced CNN training and evaluation with full optimization"""
     print(f"\n🚀 ADVANCED CNN TRAINING {feature_description}")
-    print(f"System: 1TB RAM, CPU-only, {CONFIG['hardware']['n_processes']} cores")
+    
+    # Check GPU status for training
+    import tensorflow as tf
+    gpu_devices = tf.config.list_physical_devices('GPU')
+    if gpu_devices:
+        print(f"System: 1TB RAM, GPU-accelerated ({len(gpu_devices)} GPU(s)), {CONFIG['hardware']['n_processes']} cores")
+        print(f"  GPU device(s): {[gpu.name for gpu in gpu_devices]}")
+    else:
+        print(f"System: 1TB RAM, CPU-only, {CONFIG['hardware']['n_processes']} cores")
     print("=" * 80)
     
     start_time = time.time()
@@ -307,13 +346,27 @@ def train_and_evaluate_cnn(X, y, feature_description=""):
     y_pred_classes = np.argmax(y_pred, axis=1)
     y_test_classes = np.argmax(y_test, axis=1)
     
-    # Enhanced classification report
-    label_names = ['CentralApnea', 'Normal', 'ObstructiveApnea']
+    # Dynamic label names based on actual classes present
+    unique_classes = np.unique(y_test_classes)
+    num_classes = len(unique_classes)
+    
+    # Default label mapping (adjust if your labels are different)
+    all_label_names = {
+        0: 'CentralApnea',
+        1: 'Normal',
+        2: 'ObstructiveApnea'
+    }
+    
+    # Use only the labels that are actually present
+    label_names = [all_label_names.get(i, f'Class_{i}') for i in unique_classes]
+    
     print(f"\nDetailed Classification Report {feature_description}:")
+    print(f"Classes present: {num_classes} - {label_names}")
     print("-" * 70)
     
     report = classification_report(
         y_test_classes, y_pred_classes,
+        labels=unique_classes,
         target_names=label_names,
         digits=4,
         zero_division=0
@@ -323,7 +376,7 @@ def train_and_evaluate_cnn(X, y, feature_description=""):
     # Enhanced confusion matrix
     print(f"\nConfusion Matrix {feature_description}:")
     print("-" * 50)
-    cm = confusion_matrix(y_test_classes, y_pred_classes)
+    cm = confusion_matrix(y_test_classes, y_pred_classes, labels=unique_classes)
     
     # Header - FIX THE F-STRING ERROR
     header_label = "True\\Pred"  # Move backslash outside f-string

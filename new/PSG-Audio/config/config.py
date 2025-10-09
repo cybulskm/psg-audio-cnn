@@ -1,12 +1,13 @@
 import os
 import multiprocessing as mp
 
-# FORCE CPU USAGE - CRITICAL FOR GPU-LESS SYSTEMS
-os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
+# GPU Configuration - Use GPU if available, fallback to CPU
+# Comment out the line below to enable GPU usage
+# os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
 
 CONFIG = {
     # Data configuration
-    'data_path': "/raid/userdata/cybulskm/ThesisProj/285_patients_processed.pkl",
+    'data_path': "/mnt/c/Users/Ayman/Downloads/285_patients_processed.pkl",  # Updated to 285 patients
     'output_dir': "results",
     'channels': ["EEG A1-A2", "EEG C3-A2", "EEG C4-A1", "EOG LOC-A2", "EOG ROC-A2", 
                  "EMG Chin", "Leg 1", "Leg 2", "ECG I"],

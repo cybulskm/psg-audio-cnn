@@ -54,10 +54,37 @@ def setup_optimized_environment():
     print("=" * 80)
     
     import tensorflow as tf
-    tf.config.set_visible_devices([], 'GPU')
     
     print(f"TensorFlow version: {tf.__version__}")
-    print(f"Available devices: {[d.device_type for d in tf.config.get_visible_devices()]}")
+    
+    # Detailed GPU check
+    physical_gpus = tf.config.list_physical_devices('GPU')
+    logical_gpus = tf.config.list_logical_devices('GPU')
+    visible_devices = tf.config.get_visible_devices()
+    
+    print(f"\n🔍 GPU STATUS:")
+    print(f"  Physical GPUs: {len(physical_gpus)}")
+    print(f"  Logical GPUs: {len(logical_gpus)}")
+    print(f"  Visible devices: {[d.device_type for d in visible_devices]}")
+    
+    if physical_gpus:
+        for i, gpu in enumerate(physical_gpus):
+            print(f"  GPU {i}: {gpu.name}")
+        print(f"✅ GPU IS AVAILABLE AND WILL BE USED FOR TRAINING")
+    else:
+        print(f"❌ NO GPU DETECTED - WILL USE CPU ONLY")
+    
+    # Test GPU with a simple operation
+    if physical_gpus:
+        try:
+            with tf.device('/GPU:0'):
+                a = tf.constant([[1.0, 2.0], [3.0, 4.0]])
+                b = tf.constant([[1.0, 1.0], [0.0, 1.0]])
+                c = tf.matmul(a, b)
+            print(f"✅ GPU test operation successful: GPU is functioning properly")
+        except Exception as e:
+            print(f"⚠️ GPU test failed: {e}")
+    
     print("=" * 80)
 
 def get_channel_importance_ranking(feature_importance, channels):
