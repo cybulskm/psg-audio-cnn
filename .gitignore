@@ -1,4 +1,6 @@
 *.rml
 *.edf
 *.pkl
-psg_cnn_model.h5
+*pycache
+results
+*data_cache
