@@ -4,3 +4,9 @@
 *pycache
 results
 *data_cache
+*.h5
+*.hdf5
+*.ckpt
+*.pt
+*.pth
+*.log
